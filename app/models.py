@@ -16,7 +16,7 @@ class Cliente(Base):
     deudas = relationship("Deuda", back_populates="cliente")
     comunicaciones = relationship("Comunicacion", back_populates="cliente")
     mensajes = relationship("HistorialMensaje", back_populates="cliente")
-    # NUEVO: historial de pagos, es la materia prima para entrenar el modelo de riesgo
+    # historial de pagos, es la materia prima para entrenar el modelo de riesgo
     pagos = relationship("Pago", back_populates="cliente")
 
 class Deuda(Base):

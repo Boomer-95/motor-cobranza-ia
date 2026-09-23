@@ -13,10 +13,8 @@ from .ml.features import extraer_features_cliente, FEATURE_COLUMNS
 
 load_dotenv()
 
-# 1. Declarar la app una sola vez
 app = FastAPI(title="Motor Inteligente de Cobranza API")
 
-# 2. Habilitar CORS para que el frontend HTML pueda conectarse
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -25,8 +23,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 3. Llave de Groq y URL de la DB SIEMPRE desde variables de entorno.
-#    Nunca hardcodeadas en el código (revisa tu archivo .env).
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
     raise RuntimeError(
@@ -38,7 +34,6 @@ client = AsyncOpenAI(
     base_url="https://api.groq.com/openai/v1",
 )
 
-# 4. Crear las tablas en la base de datos
 models.Base.metadata.create_all(bind=database.engine)
 
 
@@ -50,7 +45,6 @@ def get_db():
         db.close()
 
 
-# 5. Cargar el modelo predictivo de riesgo (entrenado con app/ml/train_model.py)
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "ml", "risk_model.joblib")
 _modelo_riesgo = None
 _columnas_modelo = FEATURE_COLUMNS
@@ -91,7 +85,7 @@ async def analizar_riesgo_cliente(cliente_id: int, db: Session = Depends(get_db)
 
     try:
         response = await client.chat.completions.create(
-            model="qwen/qwen3.8-27b",  # revisa modelos válidos con ver_modelos.py  
+            model="qwen/qwen3.8-27b",
             messages=[
                 {
                     "role": "system",
@@ -156,7 +150,6 @@ def calcular_riesgo_cliente(cliente_id: int, db: Session = Depends(get_db)):
     features = extraer_features_cliente(db, cliente)
     X = pd.DataFrame([features])[_columnas_modelo]
 
-    # predict_proba devuelve [prob_clase_0, prob_clase_1] -> clase 1 = "paga a tiempo"
     prob_paga_a_tiempo = float(_modelo_riesgo.predict_proba(X)[0][1])
     score_riesgo = round(1 - prob_paga_a_tiempo, 3)  # 0 = bajo riesgo, 1 = alto riesgo
 
