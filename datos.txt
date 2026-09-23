@@ -1,0 +1,19 @@
+Proyecto: Motor Inteligente de Cobranza
+
+¿Que es?
+
+Es un motor para optimizar la gestión de cobranza, la IA(Azure Machine Learning) debe analizar variables de comportamiento. ¿El cliente suele pagar tarde pero siempre paga?¿Es la primera vez que se atrasa?¿Por que medio responde mejor SMS, Whatsapp o los correos?
+
+
+
+Objetivo
+
+-Analizar la cartera de clientes
+
+-Priorizar por riesgo financiero (Priorizar deuda grande)
+
+-Implementar modelos predictivos y automatización de comunicaciones
+
+-Recomendación de estrategias de recuperación (el motor deberá ofrecerte una reestrucutración de la deuda o un descuento para asegurar el pago)
+
+-Visibilidad para la empresa(necesitan ver tableros analíticos conectados al sistema, comprobar en tiempo real si la IA esta ayudando reducir la morosidad)

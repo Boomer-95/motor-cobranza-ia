@@ -1,0 +1,10 @@
+version: '3.8'
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: Hotline29$
+      POSTGRES_DB: cobranza_db
+    ports:
+      - "5433:5432"
