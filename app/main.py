@@ -109,7 +109,7 @@ async def analizar_riesgo_cliente(cliente_id: int, db: Session = Depends(get_db)
             f"Estimado/a {cliente.nombre}, entendemos que a veces surgen imprevistos. "
             f"Queremos apoyarte a regularizar tu situación con un plan diseñado a tu medida "
             f"para tu saldo de {monto_pendiente} pesos. Por favor contáctanos al 55-9999-0000. "
-            "Atentamente, Cobranza Inteligente TESOEM."
+            "Atentamente, Cobranza Inteligente PluriOne."
         )
 
     nuevo_historial = models.HistorialMensaje(
