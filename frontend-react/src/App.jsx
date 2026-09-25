@@ -1,34 +1,28 @@
 import { useState, useEffect, useCallback } from 'react';
 import './App.css';
-
-const API_BASE = 'http://127.0.0.1:8000';
+import Login from './Login';
+import { apiFetch, getToken, borrarToken, setManejadorSesionExpirada } from './api';
 
 const SEGMENTO_INFO = {
-  'Alto riesgo': { className: 'badge badge-alto', label: 'Alto riesgo' },
-  'Riesgo medio': { className: 'badge badge-medio', label: 'Riesgo medio' },
-  'Bajo riesgo': { className: 'badge badge-bajo', label: 'Bajo riesgo' },
-  'No definido': { className: 'badge badge-neutro', label: 'Sin calcular' },
+  'Alto riesgo': { color: 'var(--danger)', label: 'Alto riesgo' },
+  'Riesgo medio': { color: 'var(--warning)', label: 'Riesgo medio' },
+  'Bajo riesgo': { color: 'var(--success)', label: 'Bajo riesgo' },
+  'No definido': { color: 'var(--text-muted)', label: 'Sin calcular' },
 };
 
 function BadgeSegmento({ segmento }) {
   const info = SEGMENTO_INFO[segmento] || SEGMENTO_INFO['No definido'];
-  return <span className={info.className}>{info.label}</span>;
-}
-
-function MetricCard({ title, value, subtitle, accent = 'purple' }) {
   return (
-    <article className={`metric-card accent-${accent}`}>
-      <div className="metric-card-top">
-        <span className="metric-label">{title}</span>
-        <span className="metric-dot" />
-      </div>
-      <strong className="metric-value">{value}</strong>
-      <span className="metric-subtitle">{subtitle}</span>
-    </article>
+    <span className="badge-segmento" style={{ backgroundColor: info.color }}>
+      {info.label}
+    </span>
   );
 }
 
 function App() {
+  const [autenticado, setAutenticado] = useState(!!getToken());
+  const [nombreAdmin, setNombreAdmin] = useState('');
+
   const [metricas, setMetricas] = useState({
     deudoresActivos: '-',
     carteraVencida: '$-',
@@ -45,18 +39,28 @@ function App() {
   const [cargandoCartera, setCargandoCartera] = useState(false);
   const [errorCartera, setErrorCartera] = useState('');
 
+  // Si el backend responde 401 en cualquier momento (token vencido),
+  // regresamos a la pantalla de login automáticamente.
+  useEffect(() => {
+    setManejadorSesionExpirada(() => {
+      setAutenticado(false);
+      setResultado(null);
+      setCartera([]);
+    });
+  }, []);
+
   const cargarMetricas = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/metricas`);
-      if (!response.ok) return;
-
-      const data = await response.json();
-      setMetricas({
-        deudoresActivos: data.deudores_activos,
-        carteraVencida: `$${Number(data.cartera_vencida).toLocaleString('es-MX')}`,
-        estrategiasIA: data.estrategias_ia,
-        recuperacion: `${data.porcentaje_recuperacion}%`,
-      });
+      const response = await apiFetch('/api/metricas');
+      if (response.ok) {
+        const data = await response.json();
+        setMetricas({
+          deudoresActivos: data.deudores_activos,
+          carteraVencida: `$${data.cartera_vencida.toLocaleString('es-MX')}`,
+          estrategiasIA: data.estrategias_ia,
+          recuperacion: `${data.porcentaje_recuperacion}%`,
+        });
+      }
     } catch (error) {
       console.error('Error al cargar métricas', error);
     }
@@ -65,13 +69,12 @@ function App() {
   const cargarCartera = useCallback(async () => {
     setCargandoCartera(true);
     setErrorCartera('');
-
     try {
-      const response = await fetch(`${API_BASE}/api/cartera-priorizada`);
+      const response = await apiFetch('/api/cartera-priorizada');
       if (response.ok) {
         const data = await response.json();
         setCartera(data);
-      } else {
+      } else if (response.status !== 401) {
         setErrorCartera('No se pudo cargar la cartera priorizada.');
       }
     } catch (error) {
@@ -83,9 +86,11 @@ function App() {
   }, []);
 
   useEffect(() => {
-    cargarMetricas();
-    cargarCartera();
-  }, [cargarMetricas, cargarCartera]);
+    if (autenticado) {
+      cargarMetricas();
+      cargarCartera();
+    }
+  }, [autenticado, cargarMetricas, cargarCartera]);
 
   const generarMensaje = async () => {
     if (!clienteId) return;
@@ -95,7 +100,7 @@ function App() {
     setResultado(null);
 
     try {
-      const resMensaje = await fetch(`${API_BASE}/ia/analizar-riesgo/${clienteId}`, {
+      const resMensaje = await apiFetch(`/ia/analizar-riesgo/${clienteId}`, {
         method: 'POST',
         headers: { Accept: 'application/json' },
       });
@@ -104,19 +109,19 @@ function App() {
         setErrorStatus('Cliente no encontrado.');
         return;
       }
-
       if (!resMensaje.ok) {
-        setErrorStatus(`Error del servidor: ${resMensaje.status}`);
+        if (resMensaje.status !== 401) {
+          setErrorStatus(`Error del servidor: ${resMensaje.status}`);
+        }
         return;
       }
-
       const dataMensaje = await resMensaje.json();
 
       let scoreRiesgo = null;
       let segmento = 'No definido';
       let probabilidadPago = null;
 
-      const resRiesgo = await fetch(`${API_BASE}/ia/calcular-riesgo/${clienteId}`, {
+      const resRiesgo = await apiFetch(`/ia/calcular-riesgo/${clienteId}`, {
         method: 'POST',
         headers: { Accept: 'application/json' },
       });
@@ -130,7 +135,7 @@ function App() {
 
       setResultado({
         nombre: dataMensaje.cliente_nombre,
-        monto: `$${Number(dataMensaje.monto_pendiente).toLocaleString('es-MX')} MXN`,
+        monto: `$${dataMensaje.monto_pendiente.toLocaleString('es-MX')} MXN`,
         mensaje: dataMensaje.mensaje_empatico,
         scoreRiesgo,
         segmento,
@@ -141,195 +146,171 @@ function App() {
       cargarCartera();
     } catch (error) {
       console.error('Error:', error);
-      setErrorStatus('Error de conexión. Verifica que FastAPI esté corriendo.');
+      setErrorStatus('Error de conexión. ¿FastAPI está corriendo?');
     } finally {
       setCargando(false);
     }
   };
 
+  const handleLogout = () => {
+    borrarToken();
+    setAutenticado(false);
+    setResultado(null);
+    setCartera([]);
+  };
+
+  if (!autenticado) {
+    return (
+      <Login
+        onLoginExitoso={(nombre) => {
+          setNombreAdmin(nombre);
+          setAutenticado(true);
+        }}
+      />
+    );
+  }
+
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-mark">MC</div>
-          <div>
-            <strong>Motor Cobranza</strong>
-            <span>PluriOne</span>
+    <div className="dashboard">
+      <div className="barra-superior">
+        <h1 style={{ margin: 0, border: 'none', padding: 0 }}>Motor Inteligente de Cobranza</h1>
+        <div className="sesion-admin">
+          <span>👤 {nombreAdmin || 'Administrador'}</span>
+          <button className="btn-secundario" onClick={handleLogout}>Cerrar sesión</button>
+        </div>
+      </div>
+
+      <div className="header-dashboard">
+        <p className="eyebrow">Vista General</p>
+        <h2>Tu cartera, en perspectiva.</h2>
+        <p style={{ color: 'var(--text-muted)' }}>
+          Consulta el estado de la deuda y organiza tu siguiente estrategia de contacto.
+        </p>
+
+        <div className="grid-metricas">
+          <div className="tarjeta-metrica">
+            <h4>Deudores Activos</h4>
+            <div className="valor">{metricas.deudoresActivos}</div>
+          </div>
+          <div className="tarjeta-metrica">
+            <h4>Cartera Vencida</h4>
+            <div className="valor">{metricas.carteraVencida}</div>
+          </div>
+          <div className="tarjeta-metrica">
+            <h4>Estrategias IA</h4>
+            <div className="valor">{metricas.estrategiasIA}</div>
+          </div>
+          <div className="tarjeta-metrica">
+            <h4>Recuperación</h4>
+            <div className="valor" style={{ color: 'var(--primary)' }}>
+              {metricas.recuperacion}
+            </div>
           </div>
         </div>
+      </div>
 
-        <nav className="nav-menu">
-          <button className="nav-item active">Resumen</button>
-          <button className="nav-item">Cartera</button>
-          <button className="nav-item">Estrategias IA</button>
-          <button className="nav-item">Historial</button>
-        </nav>
+      <h3 style={{ marginBottom: '20px' }}>Operación de Cobranza</h3>
 
-        <div className="sidebar-footer">
-          <span className="status-dot" />
-          API local conectada
-        </div>
-      </aside>
+      <div className="grid-operacion">
+        <div className="panel-grid">
+          <h3 style={{ marginTop: 0 }}>Generar Estrategia de Contacto</h3>
+          <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>
+            Ingresa el ID del deudor para analizar su perfil con IA y calcular su riesgo.
+          </p>
 
-      <main className="main-content">
-        <header className="topbar">
-          <div>
-            <p className="eyebrow">Motor Inteligente de Cobranza</p>
-            <h1>Panel de gestión</h1>
-            <p className="page-description">
-              Analiza riesgo, prioriza cartera y genera estrategias de contacto con IA.
-            </p>
-          </div>
-
-          <button
-            className="btn btn-secondary"
-            onClick={() => {
-              cargarMetricas();
-              cargarCartera();
-            }}
-          >
-            Actualizar datos
-          </button>
-        </header>
-
-        <section className="metrics-grid">
-          <MetricCard title="Deudores activos" value={metricas.deudoresActivos} subtitle="Clientes registrados" accent="purple" />
-          <MetricCard title="Cartera vencida" value={metricas.carteraVencida} subtitle="Saldo pendiente" accent="red" />
-          <MetricCard title="Estrategias IA" value={metricas.estrategiasIA} subtitle="Mensajes generados" accent="blue" />
-          <MetricCard title="Recuperación" value={metricas.recuperacion} subtitle="Sobre monto original" accent="green" />
-        </section>
-
-        <section className="workspace-grid">
-          <article className="panel">
-            <div className="panel-heading">
-              <div>
-                <p className="section-kicker">Operación</p>
-                <h2>Generar estrategia de contacto</h2>
-              </div>
-            </div>
-
-            <p className="muted">
-              Ingresa el ID del cliente para generar un mensaje empático y calcular su nivel de riesgo.
-            </p>
-
-            <div className="action-row">
-              <div className="field">
-                <label htmlFor="cliente-id">ID del cliente</label>
-                <input
-                  id="cliente-id"
-                  type="number"
-                  value={clienteId}
-                  onChange={(e) => setClienteId(e.target.value)}
-                  min="1"
-                />
-              </div>
-
-              <button className="btn btn-primary" onClick={generarMensaje} disabled={cargando}>
-                {cargando ? 'Procesando...' : 'Procesar con IA'}
-              </button>
-            </div>
-
-            {errorStatus && <div className="alert alert-error">{errorStatus}</div>}
-          </article>
-
-          <article className="panel result-panel">
-            <div className="panel-heading">
-              <div>
-                <p className="section-kicker">Resultado</p>
-                <h2>Estrategia generada</h2>
-              </div>
-              {resultado && <BadgeSegmento segmento={resultado.segmento} />}
-            </div>
-
-            {!resultado ? (
-              <div className="empty-state">
-                <div className="empty-icon">IA</div>
-                <p>Procesa un cliente para visualizar aquí su estrategia y evaluación de riesgo.</p>
-              </div>
-            ) : (
-              <>
-                <div className="result-stats">
-                  <div className="result-stat">
-                    <span>Cliente</span>
-                    <strong>{resultado.nombre}</strong>
-                  </div>
-                  <div className="result-stat">
-                    <span>Monto pendiente</span>
-                    <strong>{resultado.monto}</strong>
-                  </div>
-                  <div className="result-stat">
-                    <span>Prob. pago a tiempo</span>
-                    <strong>
-                      {resultado.probabilidadPago !== null
-                        ? `${Math.round(resultado.probabilidadPago * 100)}%`
-                        : 'No disponible'}
-                    </strong>
-                  </div>
-                </div>
-
-                <div className="message-box">
-                  <span className="message-label">Mensaje recomendado</span>
-                  <p>{resultado.mensaje}</p>
-                </div>
-              </>
-            )}
-          </article>
-        </section>
-
-        <section className="panel portfolio-panel">
-          <div className="panel-heading portfolio-heading">
-            <div>
-              <p className="section-kicker">Priorización</p>
-              <h2>Cartera priorizada</h2>
-              <p className="muted">
-                Ordenada por riesgo financiero multiplicado por monto pendiente.
-              </p>
-            </div>
-
-            <button className="btn btn-secondary" onClick={cargarCartera} disabled={cargandoCartera}>
-              {cargandoCartera ? 'Actualizando...' : 'Actualizar'}
+          <div className="input-group">
+            <input
+              type="number"
+              value={clienteId}
+              onChange={(e) => setClienteId(e.target.value)}
+              min="1"
+            />
+            <button onClick={generarMensaje} disabled={cargando}>
+              {cargando ? 'Procesando...' : 'Procesar con IA'}
             </button>
           </div>
+          {errorStatus && <div className="mensaje-error">{errorStatus}</div>}
+        </div>
 
-          {errorCartera && <div className="alert alert-error">{errorCartera}</div>}
-
-          {!errorCartera && cartera.length === 0 && !cargandoCartera ? (
-            <div className="empty-state compact">
-              <p>No hay deuda pendiente registrada o el modelo aún no ha calculado scores.</p>
+        {resultado && (
+          <div className="panel-grid">
+            <div className="encabezado-resultado">
+              <h3 style={{ margin: 0, color: 'var(--primary)' }}>Estrategia Guardada en DB</h3>
+              <BadgeSegmento segmento={resultado.segmento} />
             </div>
-          ) : (
-            <div className="table-wrapper">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Cliente</th>
-                    <th>Monto pendiente</th>
-                    <th>Segmento</th>
-                    <th>Prioridad</th>
+
+            <div className="datos-cliente">
+              <div className="metrica">
+                <small>Cliente</small>
+                <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{resultado.nombre}</div>
+              </div>
+              <div className="metrica monto">
+                <small>Monto</small>
+                <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{resultado.monto}</div>
+              </div>
+              {resultado.scoreRiesgo !== null && (
+                <div className="metrica riesgo">
+                  <small>Prob. de pago a tiempo</small>
+                  <div style={{ fontSize: '18px', fontWeight: 'bold' }}>
+                    {Math.round(resultado.probabilidadPago * 100)}%
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <textarea readOnly style={{ height: '110px' }} value={resultado.mensaje}></textarea>
+          </div>
+        )}
+      </div>
+
+      <div className="panel-grid panel-cartera">
+        <div className="encabezado-cartera">
+          <div>
+            <h3 style={{ marginTop: 0 }}>Cartera Priorizada</h3>
+            <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: 0 }}>
+              Ordenada por riesgo financiero (score de riesgo × monto pendiente).
+            </p>
+          </div>
+          <button className="btn-secundario" onClick={cargarCartera} disabled={cargandoCartera}>
+            {cargandoCartera ? 'Actualizando...' : 'Actualizar'}
+          </button>
+        </div>
+
+        {errorCartera && <div className="mensaje-error">{errorCartera}</div>}
+
+        {!errorCartera && cartera.length === 0 && !cargandoCartera && (
+          <p style={{ color: 'var(--text-muted)' }}>
+            No hay deuda pendiente registrada, o el modelo aún no ha calculado ningún score.
+          </p>
+        )}
+
+        {cartera.length > 0 && (
+          <div className="tabla-wrapper">
+            <table className="tabla-cartera">
+              <thead>
+                <tr>
+                  <th>Cliente</th>
+                  <th>Monto pendiente</th>
+                  <th>Segmento</th>
+                  <th>Prioridad</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cartera.map((c) => (
+                  <tr key={c.cliente_id}>
+                    <td>{c.cliente_nombre}</td>
+                    <td>${c.monto_pendiente.toLocaleString('es-MX')}</td>
+                    <td>
+                      <BadgeSegmento segmento={c.segmento} />
+                    </td>
+                    <td>{c.prioridad.toLocaleString('es-MX')}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {cartera.map((c) => (
-                    <tr key={c.cliente_id}>
-                      <td>
-                        <div className="client-cell">
-                          <div className="avatar">{c.cliente_nombre?.charAt(0) || '?'}</div>
-                          <span>{c.cliente_nombre}</span>
-                        </div>
-                      </td>
-                      <td>${Number(c.monto_pendiente).toLocaleString('es-MX')}</td>
-                      <td><BadgeSegmento segmento={c.segmento} /></td>
-                      <td>
-                        <strong>{Number(c.prioridad).toLocaleString('es-MX')}</strong>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      </main>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

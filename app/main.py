@@ -1,9 +1,13 @@
 import os
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
-from . import models, database
+load_dotenv()
+
+from . import models, auth
+from .database import get_db, engine, Base
 from openai import AsyncOpenAI
 from sqlalchemy import func
 import joblib
@@ -11,10 +15,10 @@ import pandas as pd
 
 from .ml.features import extraer_features_cliente, FEATURE_COLUMNS
 
-load_dotenv()
 
 app = FastAPI(title="Motor Inteligente de Cobranza API")
 
+# CORS: en producción, cambia allow_origins=["*"] por el dominio real del frontend.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -25,25 +29,11 @@ app.add_middleware(
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
-    raise RuntimeError(
-        "Falta GROQ_API_KEY en tu archivo .env. No la pegues en el código."
-    )
+    raise RuntimeError("Falta GROQ_API_KEY en tu archivo .env.")
 
-client = AsyncOpenAI(
-    api_key=GROQ_API_KEY,
-    base_url="https://api.groq.com/openai/v1",
-)
+client = AsyncOpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
 
-models.Base.metadata.create_all(bind=database.engine)
-
-
-def get_db():
-    db = database.SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
+Base.metadata.create_all(bind=engine)
 
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "ml", "risk_model.joblib")
 _modelo_riesgo = None
@@ -55,19 +45,53 @@ if os.path.exists(MODEL_PATH):
     _columnas_modelo = _bundle["columnas"]
     print("✅ Modelo de riesgo cargado correctamente.")
 else:
-    print(
-        "⚠️  No se encontró app/ml/risk_model.joblib. "
-        "Corre 'python -m app.ml.train_model' para entrenarlo."
-    )
+    print("⚠️  No se encontró app/ml/risk_model.joblib. Corre 'python -m app.ml.train_model'.")
 
+
+# ============ AUTENTICACIÓN ============
+
+@app.post("/auth/login")
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    """
+    Login del administrador. Recibe username/password como form-data
+    (estándar OAuth2), NO como JSON, por eso el frontend usa
+    application/x-www-form-urlencoded.
+    """
+    admin = db.query(models.Administrador).filter(
+        models.Administrador.username == form_data.username
+    ).first()
+
+    if not admin or not auth.verificar_password(form_data.password, admin.hashed_password):
+        raise HTTPException(
+            status_code=401,
+            detail="Usuario o contraseña incorrectos.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if not admin.activo:
+        raise HTTPException(status_code=403, detail="Esta cuenta está desactivada.")
+
+    access_token = auth.crear_access_token(data={"sub": admin.username})
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "nombre": admin.nombre_completo or admin.username,
+    }
+
+
+@app.get("/auth/me")
+def whoami(admin: models.Administrador = Depends(auth.get_admin_actual)):
+    """Útil para que el frontend valide si el token guardado sigue siendo válido."""
+    return {"username": admin.username, "nombre": admin.nombre_completo}
+
+
+# ============ ENDPOINTS PROTEGIDOS (requieren sesión) ============
 
 @app.post("/ia/analizar-riesgo/{cliente_id}")
-async def analizar_riesgo_cliente(cliente_id: int, db: Session = Depends(get_db)):
-    """
-    Genera el MENSAJE empático de cobranza usando el LLM (Groq).
-    Esta parte NO predice nada: solo redacta texto con un modelo de
-    lenguaje ya entrenado por terceros (por eso no requiere "entrenar" IA).
-    """
+async def analizar_riesgo_cliente(
+    cliente_id: int,
+    db: Session = Depends(get_db),
+    admin: models.Administrador = Depends(auth.get_admin_actual),
+):
     cliente = db.query(models.Cliente).filter(models.Cliente.id == cliente_id).first()
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
@@ -85,7 +109,7 @@ async def analizar_riesgo_cliente(cliente_id: int, db: Session = Depends(get_db)
 
     try:
         response = await client.chat.completions.create(
-            model="qwen/qwen3.8-27b",
+            model="llama-3.1-8b-instant",
             messages=[
                 {
                     "role": "system",
@@ -93,7 +117,7 @@ async def analizar_riesgo_cliente(cliente_id: int, db: Session = Depends(get_db)
                         "Eres un asistente de cobranza inteligente, empático y muy profesional. "
                         "REGLAS ESTRICTAS: "
                         "1. NUNCA inventes números de teléfono, correos electrónicos o nombres falsos. "
-                        "2. Firma siempre el mensaje exactamente como: 'Cobranza Inteligente PluriOne'. "
+                        "2. Firma siempre el mensaje exactamente como: 'Cobranza Inteligente TESOEM'. "
                         "3. Si ofreces un canal de contacto, pide que llamen exclusivamente al 55-9999-0000."
                     ),
                 },
@@ -109,7 +133,7 @@ async def analizar_riesgo_cliente(cliente_id: int, db: Session = Depends(get_db)
             f"Estimado/a {cliente.nombre}, entendemos que a veces surgen imprevistos. "
             f"Queremos apoyarte a regularizar tu situación con un plan diseñado a tu medida "
             f"para tu saldo de {monto_pendiente} pesos. Por favor contáctanos al 55-9999-0000. "
-            "Atentamente, Cobranza Inteligente PluriOne."
+            "Atentamente, Cobranza Inteligente TESOEM."
         )
 
     nuevo_historial = models.HistorialMensaje(
@@ -131,12 +155,11 @@ async def analizar_riesgo_cliente(cliente_id: int, db: Session = Depends(get_db)
 
 
 @app.post("/ia/calcular-riesgo/{cliente_id}")
-def calcular_riesgo_cliente(cliente_id: int, db: Session = Depends(get_db)):
-    """
-    Calcula el score_riesgo del cliente con el modelo de scikit-learn
-    (RandomForest entrenado en app/ml/train_model.py). Esta es la parte
-    PREDICTIVA real del proyecto, separada del LLM que redacta texto.
-    """
+def calcular_riesgo_cliente(
+    cliente_id: int,
+    db: Session = Depends(get_db),
+    admin: models.Administrador = Depends(auth.get_admin_actual),
+):
     if _modelo_riesgo is None:
         raise HTTPException(
             status_code=503,
@@ -151,7 +174,7 @@ def calcular_riesgo_cliente(cliente_id: int, db: Session = Depends(get_db)):
     X = pd.DataFrame([features])[_columnas_modelo]
 
     prob_paga_a_tiempo = float(_modelo_riesgo.predict_proba(X)[0][1])
-    score_riesgo = round(1 - prob_paga_a_tiempo, 3)  # 0 = bajo riesgo, 1 = alto riesgo
+    score_riesgo = round(1 - prob_paga_a_tiempo, 3)
 
     cliente.score_riesgo = score_riesgo
     if score_riesgo >= 0.66:
@@ -175,12 +198,10 @@ def calcular_riesgo_cliente(cliente_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/api/cartera-priorizada")
-def cartera_priorizada(db: Session = Depends(get_db)):
-    """
-    Objetivo del proyecto: 'Priorizar por riesgo financiero (deuda grande)'.
-    Ordena a los clientes por (score_riesgo * monto_pendiente) descendente,
-    para que cobranza atienda primero a quien representa más riesgo Y más dinero.
-    """
+def cartera_priorizada(
+    db: Session = Depends(get_db),
+    admin: models.Administrador = Depends(auth.get_admin_actual),
+):
     clientes = db.query(models.Cliente).all()
     resultado = []
 
@@ -205,7 +226,11 @@ def cartera_priorizada(db: Session = Depends(get_db)):
 
 
 @app.get("/ia/historial/{cliente_id}")
-def ver_historial_cliente(cliente_id: int, db: Session = Depends(get_db)):
+def ver_historial_cliente(
+    cliente_id: int,
+    db: Session = Depends(get_db),
+    admin: models.Administrador = Depends(auth.get_admin_actual),
+):
     historial = db.query(models.HistorialMensaje).filter(
         models.HistorialMensaje.cliente_id == cliente_id
     ).all()
@@ -217,7 +242,10 @@ def ver_historial_cliente(cliente_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/api/metricas")
-def obtener_metricas_globales(db: Session = Depends(get_db)):
+def obtener_metricas_globales(
+    db: Session = Depends(get_db),
+    admin: models.Administrador = Depends(auth.get_admin_actual),
+):
     total_clientes = db.query(models.Cliente).count()
     cartera_vencida = db.query(func.sum(models.Deuda.saldo_pendiente)).scalar() or 0.0
     total_estrategias = db.query(models.HistorialMensaje).count()

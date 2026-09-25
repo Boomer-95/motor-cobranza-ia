@@ -16,7 +16,6 @@ class Cliente(Base):
     deudas = relationship("Deuda", back_populates="cliente")
     comunicaciones = relationship("Comunicacion", back_populates="cliente")
     mensajes = relationship("HistorialMensaje", back_populates="cliente")
-    # historial de pagos, es la materia prima para entrenar el modelo de riesgo
     pagos = relationship("Pago", back_populates="cliente")
 
 class Deuda(Base):
@@ -57,13 +56,7 @@ class HistorialMensaje(Base):
 
 
 class Pago(Base):
-    """
-    Historial de pagos (resueltos) de cada cliente.
-    Esta tabla es la que le da 'memoria' al modelo predictivo: le dice si,
-    en el pasado, el cliente pagó a tiempo, tarde, o no pagó.
-    Cada vez que una Deuda se cierra (se paga o se da de baja), se debe
-    crear un registro aquí.
-    """
+    """Historial de pagos: la materia prima del modelo predictivo de riesgo."""
     __tablename__ = "pagos"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -71,10 +64,25 @@ class Pago(Base):
 
     monto = Column(Float, nullable=False)
     fecha_vencimiento = Column(Date, nullable=False)
-    fecha_pago = Column(Date, nullable=True)  # NULL = todavía no paga / nunca pagó
-    # dias_atraso: negativo o 0 = pagó a tiempo o antes; positivo = días de atraso
+    fecha_pago = Column(Date, nullable=True)
     dias_atraso = Column(Integer, nullable=True)
-    canal_contacto = Column(String, nullable=True)  # SMS, WhatsApp, Email, Llamada
-    se_recuperó = Column(Boolean, default=True)  # False si nunca se logró cobrar
+    canal_contacto = Column(String, nullable=True)
+    se_recuperó = Column(Boolean, default=True)
 
     cliente = relationship("Cliente", back_populates="pagos")
+
+
+class Administrador(Base):
+    """
+    Usuarios que pueden iniciar sesión en el dashboard.
+    No hay endpoint de registro público a propósito: los administradores
+    se crean con app/seed_admin.py, para que solo personal autorizado
+    tenga cuenta (nadie se auto-registra desde el frontend).
+    """
+    __tablename__ = "administradores"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    nombre_completo = Column(String, nullable=True)
+    activo = Column(Boolean, default=True)
