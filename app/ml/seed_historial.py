@@ -9,11 +9,12 @@ Uso:
 """
 import datetime
 import random
-from app.database import SessionLocal
+from app.database import SessionLocal, Base, engine
 from app import models
 
 
 def poblar_historial():
+    Base.metadata.create_all(bind=engine)
     db = SessionLocal()
 
     if db.query(models.Pago).first():

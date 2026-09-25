@@ -1,0 +1,12 @@
+.git
+.env
+.env.*
+venv
+.venv
+__pycache__
+**/__pycache__
+frontend-react
+.pytest_cache
+tests
+datos.txt
+*.sql

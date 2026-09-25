@@ -1,8 +1,9 @@
-from app.database import SessionLocal
+from app.database import SessionLocal, Base, engine
 from app.models import Cliente, Deuda
 import datetime
 
 def poblar_db():
+    Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     
     # Verificamos si ya hay datos para no duplicarlos
@@ -22,15 +23,15 @@ def poblar_db():
     # 2. Crear Deudas (Simulando fechas de vencimiento realistas)
     d1 = Deuda(
         cliente_id=c1.id, monto_total=15000.0, saldo_pendiente=15000.0, 
-        fecha_vencimiento=datetime.date(2026, 8, 15), estatus="En Mora"
+        fecha_vencimiento=datetime.date.today() - datetime.timedelta(days=40), estatus="En Mora"
     )
     d2 = Deuda(
         cliente_id=c2.id, monto_total=5000.0, saldo_pendiente=2500.0, 
-        fecha_vencimiento=datetime.date(2026, 9, 30), estatus="Pendiente"
+        fecha_vencimiento=datetime.date.today() + datetime.timedelta(days=20), estatus="Pendiente"
     )
     d3 = Deuda(
         cliente_id=c3.id, monto_total=8000.0, saldo_pendiente=8000.0, 
-        fecha_vencimiento=datetime.date(2026, 7, 10), estatus="En Mora"
+        fecha_vencimiento=datetime.date.today() - datetime.timedelta(days=70), estatus="En Mora"
     )
 
     db.add_all([d1, d2, d3])

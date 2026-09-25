@@ -1,4 +1,9 @@
 import os
+import logging
+from contextlib import asynccontextmanager
+from datetime import date
+from typing import Literal
+from pydantic import BaseModel, Field, field_validator
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
@@ -9,31 +14,41 @@ load_dotenv()
 from . import models, auth
 from .database import get_db, engine, Base
 from openai import AsyncOpenAI
-from sqlalchemy import func
+from sqlalchemy import func, or_
 import joblib
 import pandas as pd
 
 from .ml.features import extraer_features_cliente, FEATURE_COLUMNS
 
 
-app = FastAPI(title="Motor Inteligente de Cobranza API")
+@asynccontextmanager
+async def lifespan(app):
+    Base.metadata.create_all(bind=engine)
+    yield
+    if client is not None:
+        await client.close()
 
-# CORS: en producción, cambia allow_origins=["*"] por el dominio real del frontend.
+
+app = FastAPI(title="Motor Inteligente de Cobranza PluriOne API", lifespan=lifespan)
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[origin.strip() for origin in os.getenv(
+        "CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080"
+    ).split(",") if origin.strip() and origin.strip() != "*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-if not GROQ_API_KEY:
-    raise RuntimeError("Falta GROQ_API_KEY en tu archivo .env.")
-
-client = AsyncOpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
-
-Base.metadata.create_all(bind=engine)
+IA_MODO_DEMO = os.getenv("IA_MODO_DEMO", "true").lower() == "true"
+client = (
+    AsyncOpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1",
+                timeout=20.0, max_retries=0)
+    if GROQ_API_KEY and not IA_MODO_DEMO else None
+)
 
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "ml", "risk_model.joblib")
 _modelo_riesgo = None
@@ -107,9 +122,12 @@ async def analizar_riesgo_cliente(
         "Genera un mensaje corto, sumamente empático y profesional ofreciendo una opción de reestructuración de su deuda."
     )
 
+    modo_generacion = "groq"
     try:
+        if client is None:
+            raise RuntimeError("Modo local")
         response = await client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model=os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
             messages=[
                 {
                     "role": "system",
@@ -117,8 +135,8 @@ async def analizar_riesgo_cliente(
                         "Eres un asistente de cobranza inteligente, empático y muy profesional. "
                         "REGLAS ESTRICTAS: "
                         "1. NUNCA inventes números de teléfono, correos electrónicos o nombres falsos. "
-                        "2. Firma siempre el mensaje exactamente como: 'Cobranza Inteligente TESOEM'. "
-                        "3. Si ofreces un canal de contacto, pide que llamen exclusivamente al 55-9999-0000."
+                        "2. Firma siempre el mensaje exactamente como: 'Cobranza Inteligente PluriOne'. "
+                        "3. No inventes canales de contacto ni prometas condiciones financieras específicas."
                     ),
                 },
                 {"role": "user", "content": prompt},
@@ -127,13 +145,14 @@ async def analizar_riesgo_cliente(
             temperature=0.7,
         )
         mensaje_reestructuracion = response.choices[0].message.content.strip()
-    except Exception as e:
-        print(f"❌ ERROR DE LA IA: {e}")
+    except Exception:
+        modo_generacion = "local"
+        logging.getLogger(__name__).info("Se utilizó la plantilla local de demostración.")
         mensaje_reestructuracion = (
             f"Estimado/a {cliente.nombre}, entendemos que a veces surgen imprevistos. "
             f"Queremos apoyarte a regularizar tu situación con un plan diseñado a tu medida "
-            f"para tu saldo de {monto_pendiente} pesos. Por favor contáctanos al 55-9999-0000. "
-            "Atentamente, Cobranza Inteligente TESOEM."
+            f"para tu saldo de {monto_pendiente} pesos. Por favor contacta a PluriOne por sus canales oficiales. "
+            "Atentamente, Cobranza Inteligente PluriOne."
         )
 
     nuevo_historial = models.HistorialMensaje(
@@ -150,6 +169,7 @@ async def analizar_riesgo_cliente(
         "cliente_nombre": cliente.nombre,
         "monto_pendiente": monto_pendiente,
         "historial_id": nuevo_historial.id,
+        "modo_generacion": modo_generacion,
         "mensaje_empatico": mensaje_reestructuracion,
     }
 
@@ -233,7 +253,7 @@ def ver_historial_cliente(
 ):
     historial = db.query(models.HistorialMensaje).filter(
         models.HistorialMensaje.cliente_id == cliente_id
-    ).all()
+    ).order_by(models.HistorialMensaje.fecha_creacion.desc(), models.HistorialMensaje.id.desc()).all()
 
     if not historial:
         raise HTTPException(status_code=404, detail="No hay historial de mensajes para este cliente")
@@ -247,12 +267,16 @@ def obtener_metricas_globales(
     admin: models.Administrador = Depends(auth.get_admin_actual),
 ):
     total_clientes = db.query(models.Cliente).count()
-    cartera_vencida = db.query(func.sum(models.Deuda.saldo_pendiente)).scalar() or 0.0
+    saldo_total = db.query(func.sum(models.Deuda.saldo_pendiente)).scalar() or 0.0
+    cartera_vencida = db.query(func.sum(models.Deuda.saldo_pendiente)).filter(
+        models.Deuda.saldo_pendiente > 0,
+        or_(models.Deuda.estatus == "En Mora", models.Deuda.fecha_vencimiento < date.today()),
+    ).scalar() or 0.0
     total_estrategias = db.query(models.HistorialMensaje).count()
 
     monto_original = db.query(func.sum(models.Deuda.monto_total)).scalar() or 0.0
     if monto_original > 0:
-        monto_pagado = monto_original - cartera_vencida
+        monto_pagado = monto_original - saldo_total
         porcentaje_recuperacion = (monto_pagado / monto_original) * 100
     else:
         porcentaje_recuperacion = 0.0
@@ -262,4 +286,40 @@ def obtener_metricas_globales(
         "cartera_vencida": cartera_vencida,
         "estrategias_ia": total_estrategias,
         "porcentaje_recuperacion": round(porcentaje_recuperacion, 1),
+    }
+
+
+class ComunicacionSimulada(BaseModel):
+    cliente_id: int = Field(gt=0)
+    canal: Literal["Email", "SMS", "WhatsApp", "Llamada"]
+    mensaje: str = Field(min_length=1, max_length=10000)
+
+    @field_validator("mensaje")
+    @classmethod
+    def mensaje_no_vacio(cls, value):
+        if not value.strip():
+            raise ValueError("El mensaje no puede estar vacío")
+        return value.strip()
+
+
+@app.post("/api/comunicaciones", status_code=201)
+def registrar_comunicacion(
+    datos: ComunicacionSimulada,
+    db: Session = Depends(get_db),
+    admin: models.Administrador = Depends(auth.get_admin_actual),
+):
+    if db.get(models.Cliente, datos.cliente_id) is None:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    comunicacion = models.Comunicacion(
+        **datos.model_dump(), fecha_envio=date.today(), exitoso=False,
+    )
+    db.add(comunicacion)
+    db.commit()
+    db.refresh(comunicacion)
+    return {
+        "id": comunicacion.id, "cliente_id": comunicacion.cliente_id,
+        "canal": comunicacion.canal, "fecha_envio": comunicacion.fecha_envio,
+        "mensaje": comunicacion.mensaje, "exitoso": comunicacion.exitoso,
+        "simulada": True,
+        "detalle": "Modo demostración: la comunicación se registra pero no se envía externamente.",
     }

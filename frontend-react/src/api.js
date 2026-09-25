@@ -28,15 +28,16 @@ export function borrarToken() {
  *    sesión y dispara el manejador para regresar al login.
  */
 export async function apiFetch(path, options = {}) {
-  const token = getToken();
+  const { publico = false, ...fetchOptions } = options;
+  const token = publico ? null : getToken();
   const headers = { ...(options.headers || {}) };
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  const response = await fetch(`${API_BASE}${path}`, { ...fetchOptions, headers });
 
-  if (response.status === 401) {
+  if (response.status === 401 && !publico) {
     borrarToken();
     if (manejadorSesionExpirada) manejadorSesionExpirada();
   }

@@ -7,12 +7,13 @@ Uso:
     python -m app.seed_admin
 """
 import os
-from app.database import SessionLocal
+from app.database import SessionLocal, Base, engine
 from app import models
 from app.auth import hash_password
 
 
 def crear_admin():
+    Base.metadata.create_all(bind=engine)
     username = os.getenv("ADMIN_USERNAME")
     password = os.getenv("ADMIN_PASSWORD")
     nombre = os.getenv("ADMIN_NOMBRE", "Administrador")

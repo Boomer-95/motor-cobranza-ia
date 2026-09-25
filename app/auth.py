@@ -1,16 +1,3 @@
-"""
-Autenticación con JWT para el dashboard.
-
-Por qué JWT y no Microsoft Entra ID:
-Entra ID requiere un tenant corporativo de Azure AD, registro de aplicación,
-y configuración de OAuth2/OpenID Connect — apropiado para una empresa con
-esa infraestructura ya montada. Para un MVP, un esquema de tokens JWT con
-usuario/contraseña propio cumple el mismo objetivo de seguridad
-(solo un administrador autenticado ve la cartera) sin esa dependencia.
-Documentalo así ante tu evaluador: "Se implementó autenticación basada en
-JWT como alternativa equivalente a Entra ID para el alcance del MVP,
-dejando la puerta abierta a migrar a Entra ID/OAuth2 en producción."
-"""
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -39,17 +26,24 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
 
 def hash_password(password_plano: str) -> str:
+    if len(password_plano.encode("utf-8")) > 72:
+        raise ValueError("La contraseña no debe superar 72 bytes UTF-8.")
     return pwd_context.hash(password_plano)
 
 
 def verificar_password(password_plano: str, password_hash: str) -> bool:
-    return pwd_context.verify(password_plano, password_hash)
+    if len(password_plano.encode("utf-8")) > 72:
+        return False
+    try:
+        return pwd_context.verify(password_plano, password_hash)
+    except (ValueError, TypeError):
+        return False
 
 
 def crear_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + (
-        expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expires_delta if expires_delta is not None else timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
@@ -72,7 +66,7 @@ def get_admin_actual(
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username = payload.get("sub")
-        if username is None:
+        if not isinstance(username, str) or not username:
             raise credenciales_invalidas
     except JWTError:
         raise credenciales_invalidas

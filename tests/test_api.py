@@ -1,0 +1,145 @@
+from datetime import date, timedelta
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+import pytest
+from app import auth, main, models
+from app.ml.features import extraer_features_cliente
+
+
+def test_login_incorrecto(client, headers):
+    res = client.post('/auth/login', data={'username': 'prueba', 'password': 'incorrecta'})
+    assert res.status_code == 401
+    assert 'access_token' not in res.json()
+
+
+def test_login_y_me(client, headers):
+    res = client.post('/auth/login', data={'username': 'prueba', 'password': 'solo-pruebas'})
+    assert res.status_code == 200
+    me = client.get('/auth/me', headers={'Authorization': 'Bearer ' + res.json()['access_token']})
+    assert me.json() == {'username': 'prueba', 'nombre': None}
+
+
+@pytest.mark.parametrize('method,path', [
+    ('get', '/auth/me'), ('get', '/api/metricas'), ('get', '/api/cartera-priorizada'),
+    ('get', '/ia/historial/1'), ('post', '/ia/analizar-riesgo/1'),
+    ('post', '/ia/calcular-riesgo/1'), ('post', '/api/comunicaciones'),
+])
+def test_protegidos(client, method, path):
+    assert getattr(client, method)(path).status_code == 401
+
+
+def test_token_expirado(client, headers):
+    token = auth.crear_access_token({'sub': 'prueba'}, timedelta(seconds=-1))
+    assert client.get('/auth/me', headers={'Authorization': f'Bearer {token}'}).status_code == 401
+    assert client.get('/auth/me', headers={'Authorization': 'Bearer invalido'}).status_code == 401
+
+
+def crear_cliente(db):
+    cliente = models.Cliente(nombre='Cliente demo', email='demo@example.invalid', score_riesgo=0.8)
+    db.add(cliente)
+    db.commit()
+    return cliente
+
+
+def test_metricas_y_prioridad(client, db, headers):
+    c = crear_cliente(db)
+    otro = models.Cliente(nombre='Otro', score_riesgo=0.1)
+    db.add(otro)
+    db.flush()
+    hoy = date.today()
+    for cliente_id, saldo, fecha, estado in [
+        (c.id, 100, hoy - timedelta(days=1), 'Pendiente'),
+        (c.id, 200, hoy + timedelta(days=5), 'En Mora'),
+        (c.id, 300, hoy + timedelta(days=5), 'Pendiente'),
+        (c.id, 50, hoy, 'Pendiente'),
+        (c.id, 0, hoy - timedelta(days=5), 'Pagada'),
+        (otro.id, 100, hoy + timedelta(days=5), 'Pendiente'),
+    ]:
+        db.add(models.Deuda(cliente_id=cliente_id, monto_total=200, saldo_pendiente=saldo, fecha_vencimiento=fecha, estatus=estado))
+    db.commit()
+    data = client.get('/api/metricas', headers=headers).json()
+    assert data['cartera_vencida'] == 300
+    assert data['porcentaje_recuperacion'] == 37.5
+    cartera = client.get('/api/cartera-priorizada', headers=headers).json()
+    assert cartera[0]['cliente_id'] == c.id
+    assert cartera[0]['prioridad'] == 520
+    assert cartera[1]['prioridad'] == 10
+
+
+@pytest.mark.parametrize('prob,segmento', [(0.1, 'Alto riesgo'), (0.5, 'Riesgo medio'), (0.9, 'Bajo riesgo')])
+def test_riesgo(client, db, headers, monkeypatch, prob, segmento):
+    c = crear_cliente(db)
+    class Modelo:
+        def predict_proba(self, frame):
+            assert list(frame.columns) == main.FEATURE_COLUMNS
+            return [[1-prob, prob]]
+    monkeypatch.setattr(main, '_modelo_riesgo', Modelo())
+    data = client.post(f'/ia/calcular-riesgo/{c.id}', headers=headers).json()
+    assert data['score_riesgo'] == round(1-prob, 3)
+    assert data['segmento'] == segmento
+    assert db.get(models.Cliente, c.id).segmento == segmento
+    assert extraer_features_cliente(db, c)['num_pagos_historicos'] == 0
+
+
+def test_historial_y_fallback(client, db, headers):
+    c = crear_cliente(db)
+    assert client.get(f'/ia/historial/{c.id}', headers=headers).status_code == 404
+    res = client.post(f'/ia/analizar-riesgo/{c.id}', headers=headers)
+    assert res.status_code == 200
+    assert res.json()['modo_generacion'] == 'local'
+    assert 'Cobranza Inteligente PluriOne' in res.json()['mensaje_empatico']
+    historial = client.get(f'/ia/historial/{c.id}', headers=headers).json()
+    assert len(historial) == 1
+    assert historial[0]['fecha_creacion']
+
+
+def test_groq_mock(client, db, headers, monkeypatch):
+    c = crear_cliente(db)
+    create = AsyncMock(return_value=SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='Mensaje PluriOne'))]))
+    monkeypatch.setattr(main, 'client', SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)), close=AsyncMock()))
+    data = client.post(f'/ia/analizar-riesgo/{c.id}', headers=headers).json()
+    assert data['mensaje_empatico'] == 'Mensaje PluriOne'
+    assert data['modo_generacion'] == 'groq'
+    create.assert_awaited_once()
+
+
+@pytest.mark.parametrize('canal', ['Email', 'SMS', 'WhatsApp', 'Llamada'])
+def test_comunicacion(client, db, headers, canal):
+    c = crear_cliente(db)
+    res = client.post('/api/comunicaciones', headers=headers, json={'cliente_id': c.id, 'canal': canal, 'mensaje': 'Mensaje demo'})
+    assert res.status_code == 201
+    assert res.json()['simulada'] is True
+    assert res.json()['exitoso'] is False
+    registro = db.get(models.Comunicacion, res.json()['id'])
+    assert registro.canal == canal
+    assert registro.fecha_envio == date.today()
+
+
+def test_validaciones(client, headers, monkeypatch):
+    assert client.post('/api/comunicaciones', headers=headers, json={'cliente_id': 1, 'canal': 'Fax', 'mensaje': 'x'}).status_code == 422
+    assert client.post('/api/comunicaciones', headers=headers, json={'cliente_id': 1, 'canal': 'Email', 'mensaje': '  '}).status_code == 422
+    assert client.post('/api/comunicaciones', headers=headers, json={'cliente_id': 999, 'canal': 'Email', 'mensaje': 'x'}).status_code == 404
+    monkeypatch.setattr(main, '_modelo_riesgo', None)
+    assert client.post('/ia/calcular-riesgo/1', headers=headers).status_code == 503
+
+
+def test_password_no_truncado():
+    with pytest.raises(ValueError):
+        auth.hash_password('x' * 73)
+    assert not auth.verificar_password('x' * 73, auth.hash_password('x' * 72))
+
+
+def test_modelo_existente(client, db, headers):
+    c = crear_cliente(db)
+    assert main._modelo_riesgo is not None
+    res = client.post(f'/ia/calcular-riesgo/{c.id}', headers=headers)
+    assert res.status_code == 200
+    assert 0 <= res.json()['score_riesgo'] <= 1
+
+
+def test_admin_inactivo(client, db, headers):
+    admin = db.query(models.Administrador).first()
+    admin.activo = False
+    db.commit()
+    assert client.get('/auth/me', headers=headers).status_code == 401
+    assert client.post('/auth/login', data={'username': 'prueba', 'password': 'solo-pruebas'}).status_code == 403

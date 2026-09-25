@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { API_BASE, guardarToken } from './api';
+import { apiFetch, guardarToken } from './api';
 
 function Login({ onLoginExitoso }) {
   const [username, setUsername] = useState('');
@@ -18,7 +18,8 @@ function Login({ onLoginExitoso }) {
       body.append('username', username);
       body.append('password', password);
 
-      const response = await fetch(`${API_BASE}/auth/login`, {
+      const response = await apiFetch('/auth/login', {
+        publico: true,
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body,
@@ -44,29 +45,36 @@ function Login({ onLoginExitoso }) {
   return (
     <div className="login-wrapper">
       <form className="login-card" onSubmit={handleSubmit}>
-        <p className="eyebrow">Motor Inteligente de Cobranza</p>
+        <h1>Motor Inteligente de Cobranza</h1>
+        <p className="login-marca">PluriOne</p>
         <h2>Acceso administrador</h2>
-        <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '20px' }}>
+        <p className="confidencialidad">
           Esta información es confidencial. Solo personal autorizado puede continuar.
         </p>
 
+        <label htmlFor="usuario">Usuario</label>
         <input
+          id="usuario"
           type="text"
           placeholder="Usuario"
+          aria-label="Usuario" required autoComplete="username"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           autoFocus
         />
+        <label htmlFor="contrasena">Contraseña</label>
         <input
+          id="contrasena"
           type="password"
           placeholder="Contraseña"
+          aria-label="Contraseña" required autoComplete="current-password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
 
         {error && <div className="mensaje-error">{error}</div>}
 
-        <button type="submit" disabled={cargando} style={{ width: '100%', marginTop: '10px' }}>
+        <button type="submit" disabled={cargando} className="btn-login">
           {cargando ? 'Ingresando...' : 'Ingresar'}
         </button>
       </form>

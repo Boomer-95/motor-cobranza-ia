@@ -12,3 +12,6 @@ npm-debug.log
 
 .vscode/
 .DS_Store
+.pytest_cache/
+.env.*
+!.env.example
