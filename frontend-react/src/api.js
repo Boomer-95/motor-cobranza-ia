@@ -37,7 +37,8 @@ export async function apiFetch(path, options = {}) {
 
   const response = await fetch(`${API_BASE}${path}`, { ...fetchOptions, headers });
 
-  if (response.status === 401 && !publico) {
+  // Una respuesta tardía de otra sesión no puede cerrar la sesión actual.
+  if (response.status === 401 && !publico && !fetchOptions.signal?.aborted && getToken() === token) {
     borrarToken();
     if (manejadorSesionExpirada) manejadorSesionExpirada();
   }

@@ -6,7 +6,6 @@ os.environ['PYTHON_DOTENV_DISABLED'] = '1'
 os.environ.pop('DB_HOST', None)
 os.environ['DATABASE_URL'] = 'sqlite://'
 os.environ['JWT_SECRET_KEY'] = secrets.token_hex(32)
-os.environ['IA_MODO_DEMO'] = 'true'
 os.environ.pop('GROQ_API_KEY', None)
 
 import pytest

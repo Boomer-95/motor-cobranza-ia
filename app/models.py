@@ -10,7 +10,8 @@ class Cliente(Base):
     nombre = Column(String, index=True)
     email = Column(String, unique=True, index=True)
     telefono = Column(String)
-    score_riesgo = Column(Float, default=0.0) 
+    score_riesgo = Column(Float, default=0.0, nullable=True)
+    probabilidad_pago_a_tiempo = Column(Float, nullable=True)
     segmento = Column(String, default="No definido") 
     
     deudas = relationship("Deuda", back_populates="cliente")
@@ -27,7 +28,7 @@ class Deuda(Base):
     saldo_pendiente = Column(Float)
     fecha_vencimiento = Column(Date)
     estatus = Column(String, default="Pendiente")
-    probabilidad_pago = Column(Float, nullable=True) 
+    probabilidad_pago = Column(Float, nullable=True)
     
     cliente = relationship("Cliente", back_populates="deudas")
 
@@ -48,6 +49,7 @@ class HistorialMensaje(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     cliente_id = Column(Integer, ForeignKey("clientes.id"))
+    contexto_hash = Column(String(64), nullable=True)
     monto_al_momento = Column(Float)
     mensaje_generado = Column(Text)
     fecha_creacion = Column(DateTime(timezone=True), server_default=func.now())
@@ -62,6 +64,7 @@ class Pago(Base):
     id = Column(Integer, primary_key=True, index=True)
     cliente_id = Column(Integer, ForeignKey("clientes.id"))
 
+    deuda_id = Column(Integer, ForeignKey("deudas.id"), nullable=True, index=True)
     monto = Column(Float, nullable=False)
     fecha_vencimiento = Column(Date, nullable=False)
     fecha_pago = Column(Date, nullable=True)

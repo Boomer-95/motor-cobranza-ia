@@ -27,8 +27,9 @@ export default function Historial({ referenciaSeccion }) {
     {registros?.length === 0 && <p>No existe historial para este ID de cliente.</p>}
     {registros && registros.length > 0 && <div className="tabla-wrapper" tabIndex="0" role="region" aria-label="Historial de estrategias">
       <table className="tabla-historial">
-        <thead><tr><th scope="col">Fecha</th><th scope="col" className="numero">Monto</th><th scope="col">Mensaje</th></tr></thead>
+        <thead><tr><th scope="col">Folio</th><th scope="col">Fecha</th><th scope="col" className="numero">Monto</th><th scope="col">Mensaje</th></tr></thead>
         <tbody>{registros.map(item => <tr key={item.id}>
+          <td>CL-{String(item.cliente_id).padStart(6, '0')}</td>
           <td className="fecha">{new Date(item.fecha_creacion).toLocaleString('es-MX')}</td>
           <td className="numero">${item.monto_al_momento.toLocaleString('es-MX')} MXN</td>
           <td className="texto-mensaje">{item.mensaje_generado}</td>

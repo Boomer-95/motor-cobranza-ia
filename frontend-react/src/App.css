@@ -130,3 +130,18 @@ tbody tr:hover { background: #f7f8fa; }
   .login-wrapper { padding: 16px; }
   .login-card { padding: 24px; }
 }
+
+.filtros-cartera { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin-bottom: 20px; }
+.ficha-cliente { margin-top: 12px; }
+.ficha-cliente h4 { margin-top: 20px; }
+.fila-cliente { cursor: pointer; }
+.fila-cliente:hover, .fila-cliente:focus-within { background: var(--surface-alt); }
+.pago-form { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.grid-metricas { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+
+.fila-cliente.seleccionada { background: var(--surface-alt); }
+#resultado-analisis { scroll-margin-top: 16px; }
+#resultado-analisis:focus { outline: 2px solid var(--primary); outline-offset: 4px; }
+
+.detalle-operacion { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 12px; }
+.detalle-operacion summary { cursor: pointer; font-weight: 600; margin-bottom: 12px; }

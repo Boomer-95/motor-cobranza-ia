@@ -1,17 +1,40 @@
 # QA
 
-Desde la raíz: `source venv/bin/activate`, `python -m pip install -r requirements-dev.txt` y `pytest`.
+Ejecutar desde la raíz con el entorno virtual activado:
 
-Las fixtures establecen variables temporales antes de importar la app, deshabilitan dotenv, generan una clave JWT aleatoria y reemplazan la dependencia DB por SQLite en memoria. No se conecta a PostgreSQL real. Groq se desactiva o se reemplaza con AsyncMock; no se realizan llamadas externas.
+```bash
+pytest
+python -m compileall -q app tests
+python -m pip check
+cd frontend-react
+npm run lint
+npm run build
+```
 
-Se validan: login incorrecto y correcto; rutas protegidas sin token; `/auth/me`; token vencido y malformado; cartera vencida con fechas pasadas/futuras/hoy y saldo cero; recuperación independiente de vencimiento; orden de cartera; segmentos alto/medio/bajo y persistencia; modelo ausente; historial vacío y guardado; fallback local y Groq simulado; los cuatro canales y validación de cliente/canal/mensaje.
+Las fixtures deshabilitan dotenv y usan SQLite en memoria, JWT temporal y Groq mockeado. No leen .env, no acceden a PostgreSQL real ni hacen llamadas al proveedor. Se conserva cobertura de login, JWT, comunicación simulada y modelo existente.
 
-Comprobaciones adicionales: `python -m compileall -q app tests`, `python -m pip check`, `npm run build --prefix frontend-react`. Docker debe verificarse con `docker compose build` en un equipo con daemon disponible. No imprimir `docker compose config` con el entorno real porque expande secretos.
+Se prueban falta de configuración Groq (503), fallo/respuesta vacía (502, sin historial ni fallback), contexto mínimo, generación, reutilización, regeneración, invalidación tras pago y COUNT DISTINCT. Búsqueda por nombre/ID/folio, filtros, clientes sin evaluar, detalle y fechas pasadas/futuras. Pagos parciales/totales, sobrepago, montos inválidos, deuda inexistente, estatus, saldo, historial, features posteriores al pago, persistencia ML y rollback sin modelo. Migración aditiva repetida y seeds idempotentes, incluyendo cliente heredado.
 
-Prueba manual: crear administrador/datos, entrar, revisar métricas, procesar cliente, comprobar score y plantilla, consultar historial, registrar comunicación en cada canal y cerrar sesión. Repetir con ID inexistente, backend detenido, token expirado y pantalla móvil. SQLite no sustituye una prueba de integración PostgreSQL, y el build no sustituye una prueba de navegador.
+Docker: `docker compose config --quiet` valida sin imprimir secretos expandidos; `docker compose build backend frontend` construye sin modificar volúmenes. No ejecutar comandos para eliminar volúmenes.
 
-La auditoría `npm audit` identificó dos avisos heredados en Vite/esbuild (uno alto y uno moderado). Se documentan en SEGURIDAD.md; no se aplicó `npm audit fix --force`, que cambia la versión mayor de Vite.
+Prueba manual pendiente de navegador: iniciar sesión; buscar dos nombres iguales y distinguir por folio; abrir ficha con ratón/teclado; filtrar y ordenar; procesar/reutilizar/regenerar; registrar pago y verificar actualización de ficha, cartera, métricas y riesgo; comprobar errores visibles; probar móvil y expiración de sesión.
 
-## Resultado de esta revisión
+SQLite no reproduce SELECT FOR UPDATE de PostgreSQL. Antes de producción verificar migración sobre una copia del respaldo y pagos concurrentes en PostgreSQL. No se ejecutan pruebas sobre la base existente del usuario. Los builds no sustituyen pruebas E2E. Revisar las limitaciones de dependencias documentadas en SEGURIDAD.md.
 
-24 pruebas aprobadas, incluyendo inferencia con el artefacto ML existente, cuentas desactivadas y límite bcrypt. Compilación Python, pip check, lint React y build Vite correctos. Se observaron dos avisos de deprecación en dependencias (Starlette/AnyIO y passlib/crypt); no impiden ejecutar Python 3.12. La suite se ejecutó fuera del sandbox porque este bloqueaba el portal de hilos de TestClient. Compose validado con variables temporales, sin leer el .env del usuario.
+## Validación de esta actualización
+
+65 pruebas aprobadas (14.75 s), sin llamadas reales a Groq. Dos advertencias heredadas de deprecación: Starlette/AnyIO y passlib/crypt. La suite se ejecutó fuera del sandbox porque TestClient quedaba bloqueado dentro de él. compileall y pip check correctos; lint sin errores ni advertencias; build Vite correcto. Compose validado con config --quiet sin imprimir secretos. Imágenes backend y frontend construidas correctamente; Docker usó el builder clásico porque no está instalado buildx. No se aplicó la migración ni se ejecutaron seeds sobre la base existente y no se recrearon servicios ni volúmenes.
+
+## Ampliación de ficha y comunicaciones
+
+Se agregaron pruebas de búsqueda parcial por apellido con nombres duplicados y folios distintos; detalle sin comunicaciones; aislamiento de comunicaciones por cliente, orden de fecha/ID, estado simulado y conservación de registros históricos. La ficha contiene ahora acciones de procesar y regenerar, registro editable de comunicación y su historial. El clic en toda la fila o el botón de folio enfoca el detalle; confirmar esta interacción también en navegador.
+
+Validación de la ampliación: 68 pruebas aprobadas en 14.77 s, con las mismas dos advertencias heredadas. Lint sin errores ni advertencias, build Vite, compileall, pip check y Compose config --quiet correctos. No se hizo prueba E2E de navegador ni se operó sobre los datos PostgreSQL existentes.
+
+## Selección y liquidación
+
+La selección consulta detalle sin llamar ML/Groq ni incrementar historial. Se prueban última estrategia, cliente sin estrategia, folios distintos, saldo cero con y sin servicios configurados, score/probabilidad nulos, limpieza al liquidar, exclusión de cartera y deudores activos. Las pruebas existentes de scoring ahora crean deuda positiva. La estrategia previa se conserva incluso después de un pago: una nueva requiere regenerar=true.
+
+Validación manual de interfaz: seleccionar fila y verificar ID automático, desplazamiento a Operación y detalle superior; verificar los cuatro estados del panel y ausencia de ficha bajo cartera. Registrar pago desde la subsección compacta y comprobar que liquidar elimina la fila pero mantiene visible el cliente seleccionado como Sin deuda activa.
+
+Validación del flujo corregido: 79 pruebas aprobadas en 17.94 s; dos advertencias heredadas de deprecación. Lint sin errores ni advertencias; build Vite, compileall y pip check correctos. Groq mockeado y SQLite aislado; sin cambios sobre PostgreSQL. La interacción visual de navegador permanece pendiente de revisión manual.

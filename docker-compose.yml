@@ -23,7 +23,6 @@ services:
       ADMIN_USERNAME: ${ADMIN_USERNAME:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       ADMIN_NOMBRE: ${ADMIN_NOMBRE:-Administrador}
-      IA_MODO_DEMO: ${IA_MODO_DEMO:-true}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_MODEL: ${GROQ_MODEL:-llama-3.1-8b-instant}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}

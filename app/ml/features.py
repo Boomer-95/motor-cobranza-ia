@@ -48,7 +48,7 @@ def extraer_features_cliente(db: Session, cliente: "models.Cliente") -> dict:
         promedio_dias_atraso = 5.0
         monto_promedio_pago = 0.0
 
-    deudas_activas = [d for d in cliente.deudas if d.estatus in ("Pendiente", "En Mora")]
+    deudas_activas = [d for d in cliente.deudas if d.saldo_pendiente > 0]
     monto_pendiente_actual = sum(d.saldo_pendiente for d in deudas_activas)
     num_deudas_activas = len(deudas_activas)
 

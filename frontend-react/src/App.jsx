@@ -1,10 +1,12 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
 import useNavegacionSecciones, { SECCIONES } from './useNavegacionSecciones';
 import Login from './Login';
+import useSesion from './useSesion';
 import Historial from './Historial';
-import Comunicacion from './Comunicacion';
-import { apiFetch, getToken, borrarToken, setManejadorSesionExpirada } from './api';
+import FichaCliente from './FichaCliente';
+import { fechaVisible, diasVisible } from './fechas';
+import { apiFetch } from './api';
 
 const SEGMENTO_INFO = {
   'Alto riesgo': { clase: 'riesgo-alto', label: 'Alto riesgo' },
@@ -23,9 +25,18 @@ function BadgeSegmento({ segmento }) {
 }
 
 function App() {
-  const [autenticado, setAutenticado] = useState(!!getToken());
-  const [nombreAdmin, setNombreAdmin] = useState('');
-  const { seccionesRef, inicioRef, seccionActiva, navegar } = useNavegacionSecciones(autenticado);
+  const { estado, admin, validar, cerrar } = useSesion();
+  if (estado === 'validando') {
+    return <div className="login-wrapper"><p role="status">Validando sesión...</p></div>;
+  }
+  if (estado !== 'autenticado') return <Login onLoginExitoso={validar} />;
+  return <Dashboard nombreAdmin={admin.nombre || admin.username} handleLogout={cerrar} />;
+}
+
+// Al salir del estado autenticado se desmonta todo el árbol sensible, incluidos
+// cartera, selección, métricas, resultados y solicitudes de la sesión anterior.
+function Dashboard({ nombreAdmin, handleLogout }) {
+  const { seccionesRef, inicioRef, seccionActiva, navegar } = useNavegacionSecciones(true);
   const [errorMetricas, setErrorMetricas] = useState('');
 
   const [metricas, setMetricas] = useState({
@@ -35,24 +46,55 @@ function App() {
     recuperacion: '-%',
   });
 
-  const [clienteId, setClienteId] = useState(1);
-  const [cargando, setCargando] = useState(false);
-  const [resultado, setResultado] = useState(null);
+  const [clienteId, setClienteId] = useState('');
+  const [seleccionado, setSeleccionado] = useState(null);
+  const [clienteSeleccionado, setClienteSeleccionado] = useState(null);
+  const [cargandoDetalle, setCargandoDetalle] = useState(false);
+  const solicitudDetalle = useRef(0);
+  const [filtros, setFiltros] = useState({ query: '', segmento: '', analizado: '', estatus_deuda: '', orden: 'prioridad' });
+  const [busqueda, setBusqueda] = useState('orden=prioridad');
   const [errorStatus, setErrorStatus] = useState('');
 
   const [cartera, setCartera] = useState([]);
   const [cargandoCartera, setCargandoCartera] = useState(false);
   const [errorCartera, setErrorCartera] = useState('');
-
-  // Si el backend responde 401 en cualquier momento (token vencido),
-  // regresamos a la pantalla de login automáticamente.
+  const solicitudCartera = useRef(0);
+  const fichaRef = useRef(null);
+  const [aperturaFicha, setAperturaFicha] = useState(0);
+  async function abrirFicha(id) {
+    const numeroId = Number(id);
+    if (!Number.isInteger(numeroId) || numeroId < 1) { setErrorStatus('Ingresa un ID de cliente válido.'); return; }
+    const solicitud = ++solicitudDetalle.current;
+    setErrorStatus(''); setCargandoDetalle(true);
+    try {
+      const res = await apiFetch(`/api/clientes/${numeroId}`);
+      if (!res.ok) throw new Error('No se pudo consultar el cliente.');
+      const detalle = await res.json();
+      if (solicitud !== solicitudDetalle.current) return;
+      setClienteId(numeroId);
+      setSeleccionado(numeroId);
+      setClienteSeleccionado(detalle);
+      setAperturaFicha(v => v + 1);
+    } catch (error) {
+      if (solicitud === solicitudDetalle.current) setErrorStatus(error.message);
+    } finally {
+      if (solicitud === solicitudDetalle.current) setCargandoDetalle(false);
+    }
+  }
+  async function refrescarDetalle(id) {
+    const solicitud = solicitudDetalle.current;
+    const res = await apiFetch(`/api/clientes/${id}`);
+    if (!res.ok) throw new Error('No se pudo actualizar el detalle. Consulta nuevamente el cliente.');
+    const detalle = await res.json();
+    if (solicitud === solicitudDetalle.current) {
+      setClienteSeleccionado(actual => actual?.cliente_id === id ? detalle : actual);
+    }
+  }
   useEffect(() => {
-    setManejadorSesionExpirada(() => {
-      setAutenticado(false);
-      setResultado(null);
-      setCartera([]);
-    });
-  }, []);
+    if (!aperturaFicha) return;
+    navegar('operacion', true, false);
+    fichaRef.current?.focus({ preventScroll: true });
+  }, [aperturaFicha, navegar]);
 
   const cargarMetricas = useCallback(async () => {
     setErrorMetricas('');
@@ -66,6 +108,7 @@ function App() {
           carteraVencida: `$${data.cartera_vencida.toLocaleString('es-MX')}`,
           estrategiasIA: data.estrategias_ia,
           recuperacion: `${data.porcentaje_recuperacion}%`,
+          sinEvaluar: data.clientes_sin_evaluar,
         });
       }
     } catch (error) {
@@ -75,13 +118,14 @@ function App() {
   }, []);
 
   const cargarCartera = useCallback(async () => {
+    const solicitud = ++solicitudCartera.current;
     setCargandoCartera(true);
     setErrorCartera('');
     try {
-      const response = await apiFetch('/api/cartera-priorizada');
+      const response = await apiFetch(`/api/clientes?solo_con_deuda=true&${busqueda}`);
       if (response.ok) {
         const data = await response.json();
-        setCartera(data);
+        if (solicitud === solicitudCartera.current) setCartera(data);
       } else if (response.status !== 401) {
         setErrorCartera('No se pudo cargar la cartera priorizada.');
       }
@@ -89,107 +133,14 @@ function App() {
       console.error('Error al cargar cartera priorizada', error);
       setErrorCartera('Error de conexión al cargar la cartera.');
     } finally {
-      setCargandoCartera(false);
+      if (solicitud === solicitudCartera.current) setCargandoCartera(false);
     }
-  }, []);
+  }, [busqueda]);
 
   useEffect(() => {
-    if (autenticado) {
-      apiFetch('/auth/me').then(async (res) => {
-        if (res.ok) {
-          const admin = await res.json();
-          setNombreAdmin(admin.nombre || admin.username);
-        }
-      }).catch(() => setErrorMetricas('No se pudo verificar la sesión.'));
-      cargarMetricas();
-      cargarCartera();
-    }
-  }, [autenticado, cargarMetricas, cargarCartera]);
-
-  const generarMensaje = async () => {
-    if (!Number.isInteger(Number(clienteId)) || Number(clienteId) < 1) {
-      setErrorStatus('Ingresa un ID de cliente válido.');
-      return;
-    }
-
-    setCargando(true);
-    setErrorStatus('');
-    setResultado(null);
-
-    try {
-      const resMensaje = await apiFetch(`/ia/analizar-riesgo/${clienteId}`, {
-        method: 'POST',
-        headers: { Accept: 'application/json' },
-      });
-
-      if (resMensaje.status === 404) {
-        setErrorStatus('Cliente no encontrado.');
-        return;
-      }
-      if (!resMensaje.ok) {
-        if (resMensaje.status !== 401) {
-          setErrorStatus(`Error del servidor: ${resMensaje.status}`);
-        }
-        return;
-      }
-      const dataMensaje = await resMensaje.json();
-
-      let scoreRiesgo = null;
-      let segmento = 'No definido';
-      let probabilidadPago = null;
-
-      const resRiesgo = await apiFetch(`/ia/calcular-riesgo/${clienteId}`, {
-        method: 'POST',
-        headers: { Accept: 'application/json' },
-      });
-
-      if (resRiesgo.ok) {
-        const dataRiesgo = await resRiesgo.json();
-        scoreRiesgo = dataRiesgo.score_riesgo;
-        segmento = dataRiesgo.segmento;
-        probabilidadPago = dataRiesgo.probabilidad_pago_a_tiempo;
-      } else {
-        setErrorStatus('Estrategia guardada; no se pudo calcular el riesgo. Verifica que el modelo esté entrenado.');
-      }
-
-      setResultado({
-        clienteId: dataMensaje.cliente_id,
-        modo: dataMensaje.modo_generacion,
-        nombre: dataMensaje.cliente_nombre,
-        monto: `$${dataMensaje.monto_pendiente.toLocaleString('es-MX')} MXN`,
-        mensaje: dataMensaje.mensaje_empatico,
-        scoreRiesgo,
-        segmento,
-        probabilidadPago,
-      });
-
-      cargarMetricas();
-      cargarCartera();
-    } catch (error) {
-      console.error('Error:', error);
-      setErrorStatus('Error de conexión. ¿FastAPI está corriendo?');
-    } finally {
-      setCargando(false);
-    }
-  };
-
-  const handleLogout = () => {
-    borrarToken();
-    setAutenticado(false);
-    setResultado(null);
-    setCartera([]);
-  };
-
-  if (!autenticado) {
-    return (
-      <Login
-        onLoginExitoso={(nombre) => {
-          setNombreAdmin(nombre);
-          setAutenticado(true);
-        }}
-      />
-    );
-  }
+    cargarMetricas();
+    cargarCartera();
+  }, [cargarMetricas, cargarCartera]);
 
   return (
     <div ref={inicioRef} className="dashboard">
@@ -226,8 +177,9 @@ function App() {
           {errorMetricas && <p role="alert" className="mensaje-error">{errorMetricas}</p>}
           <div className="grid-metricas">
             <div className="tarjeta-metrica"><h3>Deudores activos</h3><div className="valor">{metricas.deudoresActivos}</div></div>
-            <div className="tarjeta-metrica"><h3>Cartera vencida</h3><div className="valor">{metricas.carteraVencida}</div></div>
-            <div className="tarjeta-metrica"><h3>Estrategias IA</h3><div className="valor">{metricas.estrategiasIA}</div></div>
+            <div className="tarjeta-metrica"><h3>Saldo vencido</h3><div className="valor">{metricas.carteraVencida}</div></div>
+            <div className="tarjeta-metrica"><h3>Clientes con estrategia IA</h3><div className="valor">{metricas.estrategiasIA}</div></div>
+            <div className="tarjeta-metrica"><h3>Clientes sin evaluar</h3><div className="valor">{metricas.sinEvaluar ?? '-'}</div></div>
             <div className="tarjeta-metrica"><h3>Recuperación</h3><div className="valor">{metricas.recuperacion}</div></div>
           </div>
         </section>
@@ -236,41 +188,24 @@ function App() {
           <h2 id="titulo-operacion">Operación de Cobranza</h2>
           <div className="grid-operacion">
             <div className="panel-grid">
-              <h3>Generar estrategia de contacto</h3>
-              <p className="texto-secundario">Selecciona un cliente para generar su estrategia y calcular el riesgo.</p>
-              <label htmlFor="cliente-operacion">ID del cliente</label>
-              <div className="input-group">
-                <input id="cliente-operacion" aria-label="ID del cliente" type="number" value={clienteId} onChange={(e) => setClienteId(e.target.value)} min="1" />
-                <button onClick={generarMensaje} disabled={cargando}>{cargando ? 'Procesando...' : 'Procesar con IA'}</button>
-              </div>
-              {errorStatus && <div className="mensaje-error">{errorStatus}</div>}
-            </div>
-
-            {resultado ? (
-              <div className="panel-grid">
-                <div className="encabezado-resultado">
-                  <h3>Estrategia guardada</h3>
-                  <BadgeSegmento segmento={resultado.segmento} />
+              <h3>Seleccionar cliente</h3>
+              <p className="texto-secundario">Selecciona una fila de la cartera o consulta un cliente por ID.</p>
+              <form onSubmit={e => { e.preventDefault(); abrirFicha(clienteId); }}>
+                <label htmlFor="cliente-operacion">ID del cliente</label>
+                <div className="input-group">
+                  <input id="cliente-operacion" type="number" value={clienteId} onChange={e => setClienteId(e.target.value)} min="1" required />
+                  <button disabled={cargandoDetalle}>{cargandoDetalle ? 'Consultando...' : 'Consultar cliente'}</button>
                 </div>
-                <dl className="datos-cliente">
-                  <div><dt>Cliente</dt><dd>{resultado.nombre}</dd></div>
-                  <div><dt>Monto pendiente</dt><dd>{resultado.monto}</dd></div>
-                  {resultado.scoreRiesgo !== null && (
-                    <div><dt>Probabilidad de pago a tiempo</dt><dd>{Math.round(resultado.probabilidadPago * 100)}%</dd></div>
-                  )}
-                  <div><dt>Score de riesgo</dt><dd>{resultado.scoreRiesgo ?? 'No disponible'}</dd></div>
-                </dl>
-                <p className="origen-mensaje">{resultado.modo === 'local' ? 'Plantilla local de demostración' : 'Generado con Groq'}</p>
-                <label htmlFor="mensaje-generado">Mensaje generado</label>
-                <textarea id="mensaje-generado" aria-label="Mensaje generado" readOnly value={resultado.mensaje} />
-                <Comunicacion key={resultado.mensaje} resultado={resultado} />
-              </div>
-            ) : (
-              <div className="panel-grid resultado-vacio">
-                <h3>Resultado del análisis</h3>
-                <p className="texto-secundario">El cliente, el score de riesgo y la estrategia aparecerán aquí al procesar un ID.</p>
-              </div>
-            )}
+              </form>
+              {errorStatus && <p className="mensaje-error" role="alert">{errorStatus}</p>}
+            </div>
+            <div id="resultado-analisis" className="panel-grid" ref={fichaRef} tabIndex={-1} aria-labelledby="titulo-resultado">
+              <h3 id="titulo-resultado">Resultado del análisis</h3>
+              {clienteSeleccionado ? <FichaCliente key={clienteSeleccionado.cliente_id} detalle={clienteSeleccionado}
+                alRefrescar={() => refrescarDetalle(clienteSeleccionado.cliente_id)}
+                alActualizar={async () => { await Promise.all([refrescarDetalle(clienteSeleccionado.cliente_id), cargarMetricas(), cargarCartera()]); }} />
+                : <p className="texto-secundario">Selecciona un cliente de la cartera o introduce su ID.</p>}
+            </div>
           </div>
         </section>
 
@@ -282,17 +217,38 @@ function App() {
             </div>
             <button className="btn-secundario" onClick={cargarCartera} disabled={cargandoCartera}>{cargandoCartera ? 'Actualizando...' : 'Actualizar'}</button>
           </div>
+          <form className="filtros-cartera" onSubmit={e => { e.preventDefault(); setBusqueda(new URLSearchParams(Object.entries(filtros).filter(([, v]) => v !== '')).toString()); }}>
+            <label>Buscar cliente<input value={filtros.query} placeholder="Nombre, apellido, ID o folio" onChange={e => setFiltros({ ...filtros, query: e.target.value })} /></label>
+            <label>Riesgo<select value={filtros.segmento} onChange={e => setFiltros({ ...filtros, segmento: e.target.value })}>
+              <option value="">Todos</option>{Object.entries(SEGMENTO_INFO).map(([valor, info]) => <option key={valor} value={valor}>{info.label}</option>)}
+            </select></label>
+            <label>Análisis<select value={filtros.analizado} onChange={e => setFiltros({ ...filtros, analizado: e.target.value })}><option value="">Todos</option><option value="true">Evaluados</option><option value="false">Sin evaluar</option></select></label>
+            <label>Estado de deuda<select value={filtros.estatus_deuda} onChange={e => setFiltros({ ...filtros, estatus_deuda: e.target.value })}><option value="">Todos</option>{['Pendiente', 'En Mora', 'Pagada'].map(v => <option key={v}>{v}</option>)}</select></label>
+            <label>Orden<select value={filtros.orden} onChange={e => setFiltros({ ...filtros, orden: e.target.value })}>{[['prioridad', 'Mayor prioridad'], ['saldo', 'Mayor saldo'], ['atraso', 'Mayor atraso'], ['vencimiento', 'Vencimiento más próximo'], ['nombre', 'Nombre']].map(([v, texto]) => <option key={v} value={v}>{texto}</option>)}</select></label>
+            <button>Buscar / filtrar</button>
+          </form>
+          {cargandoDetalle && <p role="status">Consultando cliente...</p>}
+          {errorStatus && <p className="mensaje-error" role="alert">{errorStatus}</p>}
           {errorCartera && <div className="mensaje-error">{errorCartera}</div>}
-          {!errorCartera && cartera.length === 0 && !cargandoCartera && <p className="texto-secundario">No hay deuda pendiente registrada.</p>}
+          {!errorCartera && cartera.length === 0 && !cargandoCartera && <p className="texto-secundario">No hay clientes que coincidan con los filtros.</p>}
           {cartera.length > 0 && (
             <div className="tabla-wrapper" tabIndex="0" role="region" aria-label="Cartera priorizada">
               <table className="tabla-cartera">
-                <thead><tr><th scope="col">Cliente</th><th scope="col" className="numero">Monto pendiente</th><th scope="col">Segmento</th><th scope="col" className="numero">Prioridad</th></tr></thead>
+                <thead><tr><th scope="col">Folio</th><th scope="col">Cliente</th><th scope="col" className="numero">Monto pendiente</th><th scope="col">Vencimiento</th><th scope="col">Días</th><th scope="col">Segmento</th><th scope="col" className="numero">Prioridad</th></tr></thead>
                 <tbody>
                   {cartera.map((c) => (
-                    <tr key={c.cliente_id}>
-                      <td><button className="btn-id" aria-label={`Seleccionar cliente ${c.cliente_id}`} onClick={() => setClienteId(c.cliente_id)}>{c.cliente_id}</button> {c.cliente_nombre}</td>
+                    <tr key={c.cliente_id} className={`fila-cliente${seleccionado === c.cliente_id ? ' seleccionada' : ''}`} tabIndex={0} role="button" aria-label={`Seleccionar ${c.folio} · ${c.cliente_nombre}`}
+                      aria-controls="resultado-analisis" aria-pressed={seleccionado === c.cliente_id}
+                      onClick={() => abrirFicha(c.cliente_id)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          if (!e.repeat) abrirFicha(c.cliente_id);
+                        }
+                      }}>
+                      <td>{c.folio}</td><td>{c.cliente_nombre}</td>
                       <td className="numero">${c.monto_pendiente.toLocaleString('es-MX')}</td>
+                      <td>{fechaVisible(c.fecha_vencimiento)}</td><td>{diasVisible(c.dias_restantes)}</td>
                       <td><BadgeSegmento segmento={c.segmento} /></td>
                       <td className="numero">{c.prioridad.toLocaleString('es-MX')}</td>
                     </tr>

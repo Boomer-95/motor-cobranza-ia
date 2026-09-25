@@ -20,4 +20,22 @@ Consultar `docker compose logs --tail=100 backend`. No registrar tokens, cuerpos
 
 ## Próximas mejoras
 
-Migraciones, paginación, auditoría, limitación de login, montos Numeric, versiones reproducibles del modelo y evaluación real. Mantener el modo local para demostraciones sin red ni gasto.
+Migraciones, paginación, auditoría, limitación de login, montos Numeric, versiones reproducibles del modelo y evaluación real. Groq es obligatorio para generar estrategias; el cálculo ML funciona sin Groq.
+
+## Aplicar esta actualización sin perder datos
+
+Primero respaldar con el comando anterior. No cambiar el nombre del proyecto Compose ni el volumen existente. Con PostgreSQL iniciado:
+
+```bash
+docker compose config --quiet
+docker compose build backend frontend
+docker compose stop backend
+docker compose run --rm --no-deps backend python -m app.migrate
+docker compose up -d
+```
+
+Si la migración falla, no iniciar el backend actualizado hasta resolverla. Es idempotente: se puede volver a ejecutar. En local: `python -m app.migrate` antes de uvicorn. Agrega deuda_id anulable/FK/índice en pagos, probabilidad_pago_a_tiempo anulable en clientes y contexto_hash anulable en historial_mensajes. No reconstruye tablas ni asocia pagos antiguos arbitrariamente. En PostgreSQL todos los cambios ocurren en una transacción. Las columnas nuevas se pueden conservar si se revierte al código anterior.
+
+La clave GROQ_API_KEY sigue viniendo del entorno y Compose usa `${GROQ_API_KEY:-}`. No es necesaria para iniciar ni registrar pagos; sí para generar estrategias. Reiniciar backend después de cambiar el entorno. El despliegue no ejecuta seeds automáticamente.
+
+Opcional, solo en demo: ejecutar `docker compose exec backend python -m app.seed` y luego `docker compose exec backend python -m app.ml.seed_historial`. Son idempotentes por cliente y preservan clientes/deudas/pagos previos. El historial es simulado y no altera saldos. No ejecutar seeds en paralelo.

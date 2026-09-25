@@ -41,6 +41,12 @@ def crear_cliente(db):
     return cliente
 
 
+def agregar_deuda(db, c):
+    db.add(models.Deuda(cliente_id=c.id, monto_total=100, saldo_pendiente=100,
+                        fecha_vencimiento=date.today(), estatus='Pendiente'))
+    db.commit()
+
+
 def test_metricas_y_prioridad(client, db, headers):
     c = crear_cliente(db)
     otro = models.Cliente(nombre='Otro', score_riesgo=0.1)
@@ -69,6 +75,7 @@ def test_metricas_y_prioridad(client, db, headers):
 @pytest.mark.parametrize('prob,segmento', [(0.1, 'Alto riesgo'), (0.5, 'Riesgo medio'), (0.9, 'Bajo riesgo')])
 def test_riesgo(client, db, headers, monkeypatch, prob, segmento):
     c = crear_cliente(db)
+    agregar_deuda(db, c)
     class Modelo:
         def predict_proba(self, frame):
             assert list(frame.columns) == main.FEATURE_COLUMNS
@@ -81,21 +88,19 @@ def test_riesgo(client, db, headers, monkeypatch, prob, segmento):
     assert extraer_features_cliente(db, c)['num_pagos_historicos'] == 0
 
 
-def test_historial_y_fallback(client, db, headers):
+def test_groq_sin_configurar(client, db, headers):
     c = crear_cliente(db)
-    assert client.get(f'/ia/historial/{c.id}', headers=headers).status_code == 404
+    agregar_deuda(db, c)
     res = client.post(f'/ia/analizar-riesgo/{c.id}', headers=headers)
-    assert res.status_code == 200
-    assert res.json()['modo_generacion'] == 'local'
-    assert 'Cobranza Inteligente PluriOne' in res.json()['mensaje_empatico']
-    historial = client.get(f'/ia/historial/{c.id}', headers=headers).json()
-    assert len(historial) == 1
-    assert historial[0]['fecha_creacion']
+    assert res.status_code == 503
+    assert res.json()['detail'] == 'Servicio de IA no configurado.'
+    assert db.query(models.HistorialMensaje).count() == 0
 
 
 def test_groq_mock(client, db, headers, monkeypatch):
     c = crear_cliente(db)
-    create = AsyncMock(return_value=SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='Mensaje PluriOne'))]))
+    agregar_deuda(db, c)
+    create = AsyncMock(return_value=SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='Mensaje PluriOne'), finish_reason='stop')]))
     monkeypatch.setattr(main, 'client', SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)), close=AsyncMock()))
     data = client.post(f'/ia/analizar-riesgo/{c.id}', headers=headers).json()
     assert data['mensaje_empatico'] == 'Mensaje PluriOne'
@@ -120,7 +125,7 @@ def test_validaciones(client, headers, monkeypatch):
     assert client.post('/api/comunicaciones', headers=headers, json={'cliente_id': 1, 'canal': 'Email', 'mensaje': '  '}).status_code == 422
     assert client.post('/api/comunicaciones', headers=headers, json={'cliente_id': 999, 'canal': 'Email', 'mensaje': 'x'}).status_code == 404
     monkeypatch.setattr(main, '_modelo_riesgo', None)
-    assert client.post('/ia/calcular-riesgo/1', headers=headers).status_code == 503
+    assert client.post('/ia/calcular-riesgo/1', headers=headers).status_code == 404
 
 
 def test_password_no_truncado():
@@ -131,6 +136,7 @@ def test_password_no_truncado():
 
 def test_modelo_existente(client, db, headers):
     c = crear_cliente(db)
+    agregar_deuda(db, c)
     assert main._modelo_riesgo is not None
     res = client.post(f'/ia/calcular-riesgo/{c.id}', headers=headers)
     assert res.status_code == 200

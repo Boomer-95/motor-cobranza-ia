@@ -1,44 +1,38 @@
-from app.database import SessionLocal, Base, engine
+"""Datos ficticios de demostración. No modifica clientes ni deudas existentes."""
+from datetime import date, timedelta
+from app.database import SessionLocal
+from app.migrate import migrar
 from app.models import Cliente, Deuda
-import datetime
+
+NOMBRES = ['Ana Gómez', 'Luis Ramírez', 'Carlos Ruiz', 'Marta Solís', 'Diego Luna',
+           'Elena Ríos', 'Pedro Vega', 'Lucía Torres', 'Jorge Soto', 'Sara Méndez',
+           'Raúl Pineda', 'Clara Vidal', 'Ana Gómez', 'Pablo Cano', 'Inés Robles']
+EMAILS = ['ana@example.invalid', 'luis@example.invalid', 'carlos@example.invalid'] + [
+    f'cliente{i:02d}@example.invalid' for i in range(4, 16)]
+LEGACY_EMAILS = dict(zip(EMAILS[:3], ['ana@ejemplo.com', 'luis@ejemplo.com', 'carlos@ejemplo.com']))
+
 
 def poblar_db():
-    Base.metadata.create_all(bind=engine)
-    db = SessionLocal()
-    
-    # Verificamos si ya hay datos para no duplicarlos
-    if db.query(Cliente).first():
-        print("La base de datos ya tiene información. No se insertó nada nuevo.")
-        db.close()
-        return
+    migrar()
+    with SessionLocal.begin() as db:
+        for i, (nombre, email) in enumerate(zip(NOMBRES, EMAILS)):
+            cliente = db.query(Cliente).filter(Cliente.email.in_([email, LEGACY_EMAILS.get(email, email)])).first()
+            if cliente:
+                # La cartera existente puede haber recibido pagos. Nunca reponer deudas.
+                continue
+            cliente = Cliente(nombre=nombre, email=email, telefono=None)
+            db.add(cliente)
+            db.flush()
+            cantidad = 2 if i in (3, 7, 11) else 1
+            for j in range(cantidad):
+                monto = [15000, 5000, 8000, 45000, 350, 1200, 22000][i % 7] + j * 1500
+                dias = [-40, 20, -70, -5, 30, 0, -15][i % 7] + j * 40
+                saldo = 0 if i == 14 else monto / 2 if i % 4 == 1 else monto
+                db.add(Deuda(cliente_id=cliente.id, monto_total=monto, saldo_pendiente=saldo,
+                    fecha_vencimiento=date.today() + timedelta(days=dias),
+                    estatus='Pagada' if saldo == 0 else 'En Mora' if dias < 0 else 'Pendiente'))
+    print('Clientes ficticios faltantes creados; cartera existente conservada.')
 
-    # 1. Crear Clientes
-    c1 = Cliente(nombre="Ana Gómez", email="ana@ejemplo.com", telefono="5551234567")
-    c2 = Cliente(nombre="Luis Ramírez", email="luis@ejemplo.com", telefono="5559876543")
-    c3 = Cliente(nombre="Carlos Ruiz", email="carlos@ejemplo.com", telefono="5554567890")
 
-    db.add_all([c1, c2, c3])
-    db.commit() # Guardamos para que se generen los IDs
-
-    # 2. Crear Deudas (Simulando fechas de vencimiento realistas)
-    d1 = Deuda(
-        cliente_id=c1.id, monto_total=15000.0, saldo_pendiente=15000.0, 
-        fecha_vencimiento=datetime.date.today() - datetime.timedelta(days=40), estatus="En Mora"
-    )
-    d2 = Deuda(
-        cliente_id=c2.id, monto_total=5000.0, saldo_pendiente=2500.0, 
-        fecha_vencimiento=datetime.date.today() + datetime.timedelta(days=20), estatus="Pendiente"
-    )
-    d3 = Deuda(
-        cliente_id=c3.id, monto_total=8000.0, saldo_pendiente=8000.0, 
-        fecha_vencimiento=datetime.date.today() - datetime.timedelta(days=70), estatus="En Mora"
-    )
-
-    db.add_all([d1, d2, d3])
-    db.commit()
-    db.close()
-    
-    print("¡Base de datos poblada con éxito!")
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     poblar_db()
