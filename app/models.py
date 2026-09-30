@@ -40,7 +40,12 @@ class Comunicacion(Base):
     canal = Column(String)
     fecha_envio = Column(Date)
     mensaje = Column(String)
-    exitoso = Column(Boolean, default=True)
+    exitoso = Column(Boolean, default=False)
+    modo = Column(String(16), nullable=True)
+    estado = Column(String(16), nullable=True)
+    provider = Column(String(16), nullable=True)
+    external_id = Column(String(255), nullable=True)
+    error_tecnico = Column(String(64), nullable=True)
     
     cliente = relationship("Cliente", back_populates="comunicaciones")
 
@@ -76,12 +81,7 @@ class Pago(Base):
 
 
 class Administrador(Base):
-    """
-    Usuarios que pueden iniciar sesión en el dashboard.
-    No hay endpoint de registro público a propósito: los administradores
-    se crean con app/seed_admin.py, para que solo personal autorizado
-    tenga cuenta (nadie se auto-registra desde el frontend).
-    """
+    """Tabla legacy conservada sin cambios de datos; no participa en autenticación."""
     __tablename__ = "administradores"
 
     id = Column(Integer, primary_key=True, index=True)

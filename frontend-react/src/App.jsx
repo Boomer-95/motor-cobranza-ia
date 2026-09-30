@@ -25,12 +25,12 @@ function BadgeSegmento({ segmento }) {
 }
 
 function App() {
-  const { estado, admin, validar, cerrar } = useSesion();
+  const { estado, admin, errorSesion, cerrar } = useSesion();
   if (estado === 'validando') {
     return <div className="login-wrapper"><p role="status">Validando sesión...</p></div>;
   }
-  if (estado !== 'autenticado') return <Login onLoginExitoso={validar} />;
-  return <Dashboard nombreAdmin={admin.nombre || admin.username} handleLogout={cerrar} />;
+  if (estado !== 'autenticado') return <Login errorSesion={errorSesion} />;
+  return <Dashboard nombreAdmin={admin.nombre || admin.email || 'Usuario Microsoft'} handleLogout={cerrar} />;
 }
 
 // Al salir del estado autenticado se desmonta todo el árbol sensible, incluidos

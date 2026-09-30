@@ -10,3 +10,8 @@ frontend-react
 tests
 datos.txt
 *.sql
+
+# Directorios locales de credenciales y herramientas; nunca enviar al daemon.
+.aws
+.codex
+.agents

@@ -1,6 +1,6 @@
 # Arquitectura
 
-React/Vite conserva sidebar, tablas y paneles empresariales. FastAPI autentica cada endpoint con JWT y SQLAlchemy accede a PostgreSQL. Se conservan login, comunicación simulada, historial y cartera priorizada.
+React/Vite conserva sidebar, tablas y paneles empresariales. FastAPI autentica cada endpoint protegido con access tokens Microsoft Entra ID y SQLAlchemy accede a PostgreSQL. Se conservan login, comunicación simulada, historial y cartera priorizada.
 
 Flujo: PostgreSQL (deudas + pagos) → features → Random Forest → probabilidad, score y segmento → contexto mínimo → Groq → HistorialMensaje. El modelo no escribe mensajes; Groq no calcula scores.
 
@@ -20,3 +20,21 @@ La tabla de cobranza usa GET /api/clientes?solo_con_deuda=true más sus filtros.
 Métricas: saldo vencido positivo por fecha o estatus; clientes con estrategia mediante COUNT DISTINCT; sin evaluar por segmento; deudores activos por saldo. Las claves anteriores se conservan y se agregan total_clientes, clientes_sin_evaluar y saldo_pendiente.
 
 app.migrate agrega columnas anulables sin eliminar registros. Se ejecuta explícitamente antes de desplegar; create_all no sustituye la migración. PostgreSQL usa bloqueo asesor transaccional para evitar dos migraciones simultáneas. Docker conserva el volumen postgres_data; Nginx sirve React y hace proxy /backend.
+
+## Comunicaciones opcionales
+
+`app/services/configuracion.py` decide disponibilidad efectiva con el interruptor global y las variables del canal. `comunicaciones.py` valida destinatario, persiste la intención y coordina `sendgrid_service.py` o `twilio_service.py`. `main.py` conserva validación del payload y autenticación; no contiene lógica del SDK. Los adaptadores usan timeout de 15 segundos, sin reintentos automáticos. Voice queda reservado y simulado.
+
+POST /api/comunicaciones conserva compatibilidad; GET /api/integraciones/estado es protegido y no realiza consultas externas. React consulta disponibilidad, muestra Real/Simulado y bloquea botón y solicitudes con estado más una referencia síncrona. Si no puede consultar el modo, impide enviar hasta recargar. El historial distingue estados reales, simulados e históricos.
+
+Comunicacion incorpora modo, estado, provider, external_id y error_tecnico anulables. Los registros antiguos permanecen sin clasificación nueva para no afirmar entregas desconocidas. Nuevos registros: Simulado con exitoso=false o Pendiente real, seguido de Enviado/Fallido. Una caída entre persistencia y finalización puede dejar Pendiente: conciliar manualmente; no existe transacción atómica entre PostgreSQL y el proveedor ni garantía de entrega exactamente una vez. Enviado representa aceptación, no recepción final; no hay webhooks de entrega.
+
+Random Forest → riesgo → Groq → texto → revisión humana → envío opcional → registro. Ninguna consulta, generación IA o cálculo de riesgo envía comunicaciones automáticamente.
+
+## Autenticación Entra con un solo registro
+
+React → MSAL (PKCE/redirect) → access token para api://CLIENT_ID/access_as_user → apiFetch → HTTPBearer → get_entra_user → operación existente. No se solicita Graph para llamar la API ni se envía idToken. MsalProvider recibe la única PublicClientApplication y gestiona initialize/handleRedirectPromise. Login selecciona cuenta; al restaurar se reutiliza una sola cuenta o la activa previamente elegida, nunca una cuenta arbitraria entre varias.
+
+app/auth.py valida criptográficamente con PyJWT y claves RSA publicadas por Microsoft. Discovery y JWKS tienen caché/rotación, sin certificados hardcodeados. La identidad segura es un diccionario con id/nombre/email; ninguna ruta depende ya del modelo Administrador. El modelo y la tabla permanecen intactos como legado, sin uso para autorizar. POST /auth/login no existe; GET /auth/me valida el mismo token que todas las operaciones.
+
+El guard de sesión impide renderizar datos durante inicialización y redirect, valida /auth/me antes de montar Dashboard y revalida en navegación/BFCache. MSAL renueva tokens; apiFetch obtiene exclusivamente accessToken del scope configurado. Los 401/403 desmontan la sesión visible sin reintentar operaciones de negocio.

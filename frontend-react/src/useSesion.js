@@ -1,85 +1,83 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { apiFetch, borrarToken, getToken, setManejadorSesionExpirada } from './api';
+import { useMsal } from '@azure/msal-react';
+import { InteractionStatus } from '@azure/msal-browser';
+import { apiFetch, setManejadorSesionExpirada } from './api';
+import { bloquearSesion, cuentaActiva } from './auth/msalConfig';
 
 export default function useSesion() {
-  const [sesion, setSesion] = useState({ estado: 'validando', admin: null });
+  const { instance, inProgress, accounts } = useMsal();
+  const [sesion, setSesion] = useState({ estado: 'validando', admin: null, errorSesion: '' });
   const revision = useRef(0);
   const pendiente = useRef(null);
-
   const invalidar = useCallback(() => {
     revision.current += 1;
     pendiente.current?.abort();
     pendiente.current = null;
   }, []);
-
-  const cerrar = useCallback(() => {
+  const denegar = useCallback(() => {
     invalidar();
-    borrarToken();
-    setSesion({ estado: 'no-autenticado', admin: null });
+    bloquearSesion();
+    setSesion({ estado: 'no-autenticado', admin: null,
+      errorSesion: 'No se pudo autorizar el acceso. Comprueba tu cuenta y la configuración Entra.' });
   }, [invalidar]);
-
+  const cerrar = useCallback(async () => {
+    const account = cuentaActiva();
+    invalidar(); bloquearSesion();
+    setSesion({ estado: 'no-autenticado', admin: null, errorSesion: '' });
+    try { await instance.logoutRedirect({ account }); }
+    catch {
+      setSesion({ estado: 'no-autenticado', admin: null,
+        errorSesion: 'No se pudo completar el cierre en Microsoft. Recarga y vuelve a cerrar sesión.' });
+    }
+  }, [instance, invalidar]);
   const validar = useCallback(async () => {
     invalidar();
-    const actual = revision.current;
-    const token = getToken();
-    if (!token) {
-      setSesion({ estado: 'no-autenticado', admin: null });
+    setSesion({ estado: 'validando', admin: null, errorSesion: '' });
+    if (inProgress !== InteractionStatus.None) return;
+    const account = cuentaActiva();
+    if (!account) {
+      setSesion({ estado: 'no-autenticado', admin: null, errorSesion: '' });
       return;
     }
-    setSesion({ estado: 'validando', admin: null });
+    const actual = revision.current;
     const controller = new AbortController();
     pendiente.current = controller;
     try {
       const response = await apiFetch('/auth/me', { signal: controller.signal, cache: 'no-store' });
-      if (response.status !== 200) throw new Error('Sesión no válida');
+      if (!response.ok) throw new Error();
       const admin = await response.json();
-      if (!admin || typeof admin.username !== 'string' || !admin.username) {
-        throw new Error('Usuario no válido');
-      }
-      if (actual !== revision.current) return;
-      if (getToken() !== token) return validar();
+      if (typeof admin.id !== 'string' || !admin.id) throw new Error();
+      if (actual !== revision.current || cuentaActiva()?.homeAccountId !== account.homeAccountId) return;
       pendiente.current = null;
-      setSesion({ estado: 'autenticado', admin });
+      setSesion({ estado: 'autenticado', admin, errorSesion: '' });
     } catch {
-      if (actual !== revision.current) return;
-      if (getToken() !== token) return validar();
-      cerrar();
+      if (actual === revision.current) denegar();
     }
-  }, [cerrar, invalidar]);
+  }, [inProgress, invalidar, denegar]);
 
   useEffect(() => {
-    setManejadorSesionExpirada(cerrar);
-    validar();
-    // Confirmar también en pageshow normal; persisted (BFCache) nunca reutiliza
-    // la autorización anterior. flushSync retira el dashboard antes del repintado.
+    setManejadorSesionExpirada(denegar);
+    void validar();
     const restaurar = () => flushSync(() => { void validar(); });
     const ocultar = () => flushSync(() => {
-      invalidar();
-      setSesion({ estado: 'validando', admin: null });
+      invalidar(); setSesion({ estado: 'validando', admin: null, errorSesion: '' });
     });
-    const visibilidad = () => {
-      if (document.visibilityState === 'visible') restaurar();
-    };
-    const almacenamiento = (event) => {
-      if (event.key === 'token' || event.key === null) restaurar();
-    };
+    const visibilidad = () => { if (document.visibilityState === 'visible') restaurar(); };
     window.addEventListener('pageshow', restaurar);
     window.addEventListener('popstate', restaurar);
-    // Guardar en BFCache una pantalla sin datos sensibles.
     window.addEventListener('pagehide', ocultar);
-    window.addEventListener('storage', almacenamiento);
     document.addEventListener('visibilitychange', visibilidad);
     return () => {
-      invalidar();
-      setManejadorSesionExpirada(null);
+      invalidar(); setManejadorSesionExpirada(null);
       window.removeEventListener('pageshow', restaurar);
       window.removeEventListener('popstate', restaurar);
       window.removeEventListener('pagehide', ocultar);
-      window.removeEventListener('storage', almacenamiento);
       document.removeEventListener('visibilitychange', visibilidad);
     };
-  }, [cerrar, invalidar, validar]);
+  }, [accounts, denegar, invalidar, validar]);
 
-  return { ...sesion, validar, cerrar };
+  // Nunca renderizar un dashboard antiguo durante inicialización/redirect/logout.
+  return { ...sesion, estado: inProgress !== InteractionStatus.None ? 'validando'
+    : sesion.estado === 'autenticado' && !cuentaActiva() ? 'no-autenticado' : sesion.estado, cerrar };
 }

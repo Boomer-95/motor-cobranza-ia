@@ -11,7 +11,7 @@ npm run lint
 npm run build
 ```
 
-Las fixtures deshabilitan dotenv y usan SQLite en memoria, JWT temporal y Groq mockeado. No leen .env, no acceden a PostgreSQL real ni hacen llamadas al proveedor. Se conserva cobertura de login, JWT, comunicación simulada y modelo existente.
+Las fixtures deshabilitan dotenv y usan SQLite en memoria, tokens Entra firmados con RSA efímera, discovery/JWKS y Groq mockeados. No leen .env, no acceden a PostgreSQL real ni hacen llamadas al proveedor. Se conserva cobertura de autenticación Entra, comunicación simulada y modelo existente.
 
 Se prueban falta de configuración Groq (503), fallo/respuesta vacía (502, sin historial ni fallback), contexto mínimo, generación, reutilización, regeneración, invalidación tras pago y COUNT DISTINCT. Búsqueda por nombre/ID/folio, filtros, clientes sin evaluar, detalle y fechas pasadas/futuras. Pagos parciales/totales, sobrepago, montos inválidos, deuda inexistente, estatus, saldo, historial, features posteriores al pago, persistencia ML y rollback sin modelo. Migración aditiva repetida y seeds idempotentes, incluyendo cliente heredado.
 
@@ -38,3 +38,35 @@ La selección consulta detalle sin llamar ML/Groq ni incrementar historial. Se p
 Validación manual de interfaz: seleccionar fila y verificar ID automático, desplazamiento a Operación y detalle superior; verificar los cuatro estados del panel y ausencia de ficha bajo cartera. Registrar pago desde la subsección compacta y comprobar que liquidar elimina la fila pero mantiene visible el cliente seleccionado como Sin deuda activa.
 
 Validación del flujo corregido: 79 pruebas aprobadas en 17.94 s; dos advertencias heredadas de deprecación. Lint sin errores ni advertencias; build Vite, compileall y pip check correctos. Groq mockeado y SQLite aislado; sin cambios sobre PostgreSQL. La interacción visual de navegador permanece pendiente de revisión manual.
+
+## Autenticación Microsoft Entra ID
+
+Pruebas automatizadas: token ausente/malformado, firma inválida, exp/nbf, issuer/audience/tid/ver, scope exacto, identidad opcional sin email, rutas protegidas, /auth/login eliminado, configuración ausente, caché/rotación JWKS, discovery restringido y fallos seguros. Los tokens son sintéticos locales; no se consulta Microsoft. Se mantienen las pruebas de negocio y comunicaciones. Los resultados numéricos de secciones anteriores son históricos.
+
+Prueba interactiva pendiente: configurar el único registro según README, iniciar con Microsoft en localhost:8080, aprobar consentimiento para el scope propio, entrar al dashboard y cerrar sesión. Probar atrás/adelante, recarga, cambio de pestaña y BFCache: no debe reaparecer información sin validar la cuenta. Probar selección con varias cuentas y recuperación tras expiración; nunca copiar ni imprimir tokens. Confirmar operaciones con COMMUNICATIONS_REAL_ENABLED=false. Los builds no sustituyen esta prueba interactiva del tenant.
+
+Resultado de esta migración Entra: 142 pruebas aprobadas en 5.03 s; una advertencia heredada de Starlette/AnyIO. compileall, pip check, lint y builds React (sin configuración y con IDs ficticios) correctos. Compose config --quiet y build de backend/frontend correctos usando --env-file /dev/null y variables PostgreSQL ficticias, sin leer el .env real. No se iniciaron servicios ni se modificaron datos. Pendiente exclusivamente la prueba interactiva Microsoft con el tenant del usuario.
+
+## Diagnóstico seguro de adaptación de comunicaciones
+
+El 502 de adaptación ocurre antes de `comunicaciones.registrar()`: no registra comunicación ni contacta Twilio. Los logs posteriores confirmaron dos rechazos por `TokenLimitReached`: la validación exigía `stop` antes de evaluar si el contenido SMS era utilizable. El log no permite determinar qué texto o razonamiento agotó los tokens del proveedor.
+
+Rutas identificadas y reproducidas con mocks:
+
+- Error SDK/proveedor: `GroqGenerationFailed`, con razón fija para timeout, conexión, HTTP 400/401/403/404/429 y otros errores HTTP; una excepción inesperada del cliente se identifica por separado.
+- Respuesta sin estructura esperada: `SmsAdaptationFailed reason=MalformedResponse`.
+- Para Llamada, `finish_reason=length` mantiene `TokenLimitReached`. Para SMS se acepta `stop` o `length` con contenido utilizable; otros motivos mantienen `UnexpectedFinishReason`.
+- Contenido nulo, no textual o vacío: `EmptyContent`.
+- Normalización deja solo emojis/caracteres no permitidos, o la primera palabra excede 150 caracteres: `NoUsableSmsWords`.
+
+Un SMS textual utilizable (`stop` o `length`) no se rechaza por el motivo de terminación ni por superar 150 caracteres: `adaptar_sms` extrae únicamente `message.content`, retira adornos Markdown, etiquetas SMS, comillas externas y bloques `<think>` completos o incompletos, normaliza a GSM-7 básico y conserva palabras completas hasta 150 caracteres. Nunca usa el campo separado de razonamiento. Si no queda texto alfanumérico utilizable, aborta antes de registrar. El prompt exige una sola línea de 120–130 caracteres sin razonamiento ni explicaciones. Se mantiene temperatura 0.2 y presupuesto fijo de 256 tokens; no se aumenta para resolver este caso. Llamada conserva su validación anterior, brevedad y simulación. No hay regeneración ni sustitución por mensajes hardcodeados cuando falla Groq.
+
+Los logs contienen únicamente categorías, razones fijas y canal. No incluyen excepción, stack trace, cuerpo del proveedor, mensajes, destinatarios ni credenciales. Errores inesperados en código local ya no se convierten silenciosamente en un 502 de Groq. Para inspeccionar solo esas categorías tras desplegar (sin generar otro envío):
+
+```bash
+docker compose logs --no-color backend | rg 'GroqGenerationFailed|SmsAdaptationFailed|VoiceAdaptationFailed'
+```
+
+La regresión mantiene un SMS previo ID 6, provoca cada rechazo y verifica que no se agrega ningún registro ni se llama a proveedores. La suite bloquea conexiones de red y utiliza mocks de Groq, Twilio y SendGrid.
+
+Validación de recuperación SMS con `length`: 207 pruebas aprobadas, con una advertencia heredada Starlette/AnyIO. Se prueba explícitamente entrega al servicio de comunicaciones mockeado, rechazo de contenido vacío/inutilizable sin registro, limpieza de formato/razonamiento y límite GSM-7; se mantienen las pruebas de proveedores, Email/WhatsApp, Voice simulada y fallos de Groq. `compileall app` y `git diff --check` correctos. Sin llamadas reales ni envíos.

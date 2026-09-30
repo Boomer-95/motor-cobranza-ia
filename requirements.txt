@@ -95,6 +95,7 @@ watchdog==6.0.0
 watchfiles==1.2.0
 websockets==16.1.1
 
-python-jose[cryptography]==3.5.0
-passlib[bcrypt]==1.7.4
-bcrypt==4.0.1
+
+twilio==9.11.2
+sendgrid==6.12.5
+PyJWT[crypto]==2.15.1

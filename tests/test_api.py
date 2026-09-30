@@ -2,21 +2,8 @@ from datetime import date, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import pytest
-from app import auth, main, models
+from app import main, models
 from app.ml.features import extraer_features_cliente
-
-
-def test_login_incorrecto(client, headers):
-    res = client.post('/auth/login', data={'username': 'prueba', 'password': 'incorrecta'})
-    assert res.status_code == 401
-    assert 'access_token' not in res.json()
-
-
-def test_login_y_me(client, headers):
-    res = client.post('/auth/login', data={'username': 'prueba', 'password': 'solo-pruebas'})
-    assert res.status_code == 200
-    me = client.get('/auth/me', headers={'Authorization': 'Bearer ' + res.json()['access_token']})
-    assert me.json() == {'username': 'prueba', 'nombre': None}
 
 
 @pytest.mark.parametrize('method,path', [
@@ -26,12 +13,6 @@ def test_login_y_me(client, headers):
 ])
 def test_protegidos(client, method, path):
     assert getattr(client, method)(path).status_code == 401
-
-
-def test_token_expirado(client, headers):
-    token = auth.crear_access_token({'sub': 'prueba'}, timedelta(seconds=-1))
-    assert client.get('/auth/me', headers={'Authorization': f'Bearer {token}'}).status_code == 401
-    assert client.get('/auth/me', headers={'Authorization': 'Bearer invalido'}).status_code == 401
 
 
 def crear_cliente(db):
@@ -109,7 +90,11 @@ def test_groq_mock(client, db, headers, monkeypatch):
 
 
 @pytest.mark.parametrize('canal', ['Email', 'SMS', 'WhatsApp', 'Llamada'])
-def test_comunicacion(client, db, headers, canal):
+def test_comunicacion(client, db, headers, canal, monkeypatch):
+    create = AsyncMock(return_value=SimpleNamespace(choices=[SimpleNamespace(
+        message=SimpleNamespace(content='Mensaje demo'), finish_reason='stop')]))
+    monkeypatch.setattr(main, 'client', SimpleNamespace(chat=SimpleNamespace(
+        completions=SimpleNamespace(create=create)), close=AsyncMock()))
     c = crear_cliente(db)
     res = client.post('/api/comunicaciones', headers=headers, json={'cliente_id': c.id, 'canal': canal, 'mensaje': 'Mensaje demo'})
     assert res.status_code == 201
@@ -128,12 +113,6 @@ def test_validaciones(client, headers, monkeypatch):
     assert client.post('/ia/calcular-riesgo/1', headers=headers).status_code == 404
 
 
-def test_password_no_truncado():
-    with pytest.raises(ValueError):
-        auth.hash_password('x' * 73)
-    assert not auth.verificar_password('x' * 73, auth.hash_password('x' * 72))
-
-
 def test_modelo_existente(client, db, headers):
     c = crear_cliente(db)
     agregar_deuda(db, c)
@@ -141,11 +120,3 @@ def test_modelo_existente(client, db, headers):
     res = client.post(f'/ia/calcular-riesgo/{c.id}', headers=headers)
     assert res.status_code == 200
     assert 0 <= res.json()['score_riesgo'] <= 1
-
-
-def test_admin_inactivo(client, db, headers):
-    admin = db.query(models.Administrador).first()
-    admin.activo = False
-    db.commit()
-    assert client.get('/auth/me', headers=headers).status_code == 401
-    assert client.post('/auth/login', data={'username': 'prueba', 'password': 'solo-pruebas'}).status_code == 403

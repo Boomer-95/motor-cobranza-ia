@@ -1,80 +1,106 @@
+"""Autenticación exclusiva Entra ID: tokens de acceso delegados v2, RS256."""
 import os
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from threading import Lock
+from time import monotonic
+from urllib.parse import urlparse
+from uuid import UUID
 
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
-from passlib.context import CryptContext
-from sqlalchemy.orm import Session
+import httpx
+import jwt
+from fastapi import Depends, HTTPException
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-from . import models
-from .database import get_db
-
-SECRET_KEY = os.getenv("JWT_SECRET_KEY")
-if not SECRET_KEY:
-    raise RuntimeError(
-        "Falta JWT_SECRET_KEY en tu .env. Genera una con: "
-        "python -c \"import secrets; print(secrets.token_hex(32))\""
-    )
-
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60  # sesión válida por 1 hora
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+bearer = HTTPBearer(auto_error=False)
 
 
-def hash_password(password_plano: str) -> str:
-    if len(password_plano.encode("utf-8")) > 72:
-        raise ValueError("La contraseña no debe superar 72 bytes UTF-8.")
-    return pwd_context.hash(password_plano)
-
-
-def verificar_password(password_plano: str, password_hash: str) -> bool:
-    if len(password_plano.encode("utf-8")) > 72:
-        return False
+def configuracion():
     try:
-        return pwd_context.verify(password_plano, password_hash)
-    except (ValueError, TypeError):
-        return False
+        tenant = str(UUID(os.environ['ENTRA_TENANT_ID'].strip()))
+        client = str(UUID(os.environ['ENTRA_CLIENT_ID'].strip()))
+        scope = os.getenv('ENTRA_REQUIRED_SCOPE', 'access_as_user').strip()
+        if not scope or len(scope.split()) != 1:
+            raise ValueError()
+    except (KeyError, ValueError):
+        raise HTTPException(503, 'Microsoft Entra ID no está configurado.') from None
+    return tenant, client, scope
 
 
-def crear_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (
-        expires_delta if expires_delta is not None else timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    )
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+def descargar_json(url):
+    # Solo documentos públicos; nunca enviar el Bearer a discovery/JWKS.
+    response = httpx.get(url, timeout=10, follow_redirects=False)
+    response.raise_for_status()
+    return response.json()
 
 
-def get_admin_actual(
-    token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db),
-) -> models.Administrador:
-    """
-    Dependencia para proteger endpoints: se agrega como
-    `admin: models.Administrador = Depends(get_admin_actual)`
-    a cualquier ruta que solo el administrador autenticado deba ver.
-    """
-    credenciales_invalidas = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="No se pudo validar la sesión. Inicia sesión de nuevo.",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+class ClavesEntra:
+    """Caché por proceso: 1 hora; kid desconocido refresca como máximo cada 60 s."""
+    def __init__(self):
+        self.lock = Lock()
+        self.tenant = None
+        self.keys = []
+        self.expires = 0
+        self.last_attempt = float('-inf')
+
+    def obtener(self, tenant, kid):
+        issuer = f'https://login.microsoftonline.com/{tenant}/v2.0'
+        with self.lock:
+            now = monotonic()
+            if self.tenant != tenant:
+                self.tenant, self.keys, self.expires, self.last_attempt = tenant, [], 0, float('-inf')
+            match = next((key for key in self.keys if key.get('kid') == kid), None)
+            if now >= self.expires or match is None:
+                if now - self.last_attempt >= 60:
+                    self.last_attempt = now
+                    try:
+                        discovery = descargar_json(issuer + '/.well-known/openid-configuration')
+                        uri = discovery['jwks_uri']
+                        parsed = urlparse(uri)
+                        if (discovery.get('issuer') != issuer or parsed.scheme != 'https'
+                                or parsed.netloc != 'login.microsoftonline.com' or parsed.fragment):
+                            raise ValueError()
+                        keys = descargar_json(uri)['keys']
+                        if not isinstance(keys, list) or not keys or not all(isinstance(k, dict) for k in keys):
+                            raise ValueError()
+                        self.keys, self.expires = keys, now + 3600
+                    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+                        raise HTTPException(503, 'No se pudo validar la sesión con Microsoft.') from None
+                if now >= self.expires:
+                    raise HTTPException(503, 'No se pudo validar la sesión con Microsoft.')
+                match = next((key for key in self.keys if key.get('kid') == kid), None)
+            if match is None:
+                raise jwt.InvalidTokenError()
+            if (match.get('kty') != 'RSA' or match.get('use', 'sig') != 'sig'
+                    or match.get('alg', 'RS256') != 'RS256'
+                    or match.get('issuer', issuer).replace('{tenantid}', tenant) != issuer):
+                raise jwt.InvalidTokenError()
+            return jwt.PyJWK.from_dict(match, algorithm='RS256').key
+
+
+claves = ClavesEntra()
+
+
+def get_entra_user(credentials: HTTPAuthorizationCredentials = Depends(bearer)):
+    invalid = HTTPException(401, 'Sesión no válida. Inicia sesión con Microsoft.',
+                            headers={'WWW-Authenticate': 'Bearer'})
+    if credentials is None or credentials.scheme.lower() != 'bearer':
+        raise invalid
+    tenant, audience, scope = configuracion()
+    issuer = f'https://login.microsoftonline.com/{tenant}/v2.0'
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username = payload.get("sub")
-        if not isinstance(username, str) or not username:
-            raise credenciales_invalidas
-    except JWTError:
-        raise credenciales_invalidas
-
-    admin = db.query(models.Administrador).filter(
-        models.Administrador.username == username
-    ).first()
-    if admin is None or not admin.activo:
-        raise credenciales_invalidas
-
-    return admin
+        header = jwt.get_unverified_header(credentials.credentials)
+        if header.get('alg') != 'RS256' or not isinstance(header.get('kid'), str) or not header['kid']:
+            raise jwt.InvalidTokenError()
+        key = claves.obtener(tenant, header['kid'])
+        claims = jwt.decode(credentials.credentials, key, algorithms=['RS256'],
+                            audience=audience, issuer=issuer,
+                            options={'require': ['exp', 'iss', 'aud', 'tid', 'oid', 'ver'], 'strict_aud': True})
+        if claims['tid'] != tenant or claims['ver'] != '2.0' or not isinstance(claims['oid'], str) or not claims['oid']:
+            raise jwt.InvalidTokenError()
+    except (jwt.PyJWTError, ValueError, TypeError):
+        raise invalid from None
+    scopes = claims.get('scp')
+    if not isinstance(scopes, str) or scope not in scopes.split():
+        raise HTTPException(403, 'No tienes permiso para acceder a esta API.')
+    return {'id': claims['oid'], 'nombre': claims.get('name') if isinstance(claims.get('name'), str) else None,
+            'email': next((claims[k] for k in ('preferred_username', 'email')
+                           if isinstance(claims.get(k), str) and claims[k]), None)}

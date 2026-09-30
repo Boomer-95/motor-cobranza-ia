@@ -10,6 +10,9 @@ def migrar(bind=engine):
             conn.execute(text('SELECT pg_advisory_xact_lock(71924001)'))
         Base.metadata.create_all(conn)
         cambios = {
+            'comunicaciones': {'modo': 'VARCHAR(16)', 'estado': 'VARCHAR(16)',
+                              'provider': 'VARCHAR(16)', 'external_id': 'VARCHAR(255)',
+                              'error_tecnico': 'VARCHAR(64)'},
             'pagos': {'deuda_id': 'INTEGER REFERENCES deudas(id)'},
             'clientes': {'probabilidad_pago_a_tiempo': 'FLOAT'},
             'historial_mensajes': {'contexto_hash': 'VARCHAR(64)'},

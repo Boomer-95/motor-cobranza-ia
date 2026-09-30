@@ -98,7 +98,7 @@ export default function FichaCliente({ detalle, alActualizar, alRefrescar }) {
       <thead><tr><th>Canal</th><th>Fecha</th><th>Mensaje</th><th>Estado</th></tr></thead>
       <tbody>{detalle.comunicaciones.map(c => <tr key={c.id}>
         <td>{c.canal}</td><td>{fechaVisible(c.fecha)}</td><td className="texto-mensaje">{c.mensaje}</td>
-        <td>{c.simulada ? 'Simulada · sin envío externo' : 'Registro histórico · entrega no verificada'}</td>
+        <td>{c.estado ? `${c.modo} · ${c.estado === 'Enviado' ? 'Enviado / aceptado; entrega no confirmada' : c.estado}${c.provider ? ` · ${c.provider}` : ''}` : c.simulada ? 'Simulada · sin envío externo' : 'Registro histórico · entrega no verificada'}</td>
       </tr>)}</tbody>
     </table></div> : <p>Sin comunicaciones registradas.</p>}
     <Comunicacion key={detalle.sin_deuda_activa ? 'sin-deuda' : detalle.ultima_estrategia?.id ?? 'sin-estrategia'} permitirEdicion
