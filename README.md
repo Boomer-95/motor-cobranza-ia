@@ -55,6 +55,7 @@ Usa [.env.example](.env.example) como referencia. No contiene secretos. No sobre
 | ENTRA_CLIENT_ID / ENTRA_TENANT_ID / ENTRA_REQUIRED_SCOPE | Validación del access token de la API |
 | VITE_ENTRA_CLIENT_ID / VITE_ENTRA_TENANT_ID / VITE_ENTRA_API_SCOPE / VITE_ENTRA_REDIRECT_URI | MSAL en React; mismo registro que la API |
 | GROQ_API_KEY / GROQ_MODEL | Credencial necesaria para estrategias y modelo de Groq |
+| GROQ_SMS_MODEL | Modelo exclusivo de SMS; por defecto `qwen/qwen3.8-27b`, con `reasoning_effort=none`. Independiente de GROQ_MODEL. |
 | CORS_ORIGINS | Orígenes permitidos separados por coma; sin comodín |
 | POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB | Inicialización de PostgreSQL en Compose |
 | DB_HOST | Compose lo fija a `db`; construye la URL de forma segura y tiene prioridad sobre DATABASE_URL |

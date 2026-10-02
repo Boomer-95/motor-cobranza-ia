@@ -356,6 +356,8 @@ def test_presupuesto_tokens_y_fallback_de_respuesta_completa(client, db, headers
     # Para SMS length con contenido utilizable debe pasar por el mismo respaldo.
     completo = 'José,\n recuerde su saldo pendiente. ' * 10
     async def generar(**kwargs):
+        assert kwargs['model'] == 'qwen/qwen3.8-27b'
+        assert kwargs['reasoning_effort'] == 'none'
         assert kwargs['max_tokens'] == 256
         assert kwargs['temperature'] == 0.2
         motivo = 'length'
@@ -446,3 +448,28 @@ def test_razonamiento_separado_no_sustituye_contenido(client, headers, contacto,
     assert res.status_code == 502
     registrar.assert_not_called()
     assert 'RAZONAMIENTO-SENTINELA' not in res.text + caplog.text
+
+
+@pytest.mark.parametrize('motivo', ['stop', 'length'])
+def test_sms_corto_util_no_se_reemplaza(client, headers, contacto, configurado,
+                                      groq_adaptacion, motivo):
+    texto = ('Recuerda tu saldo pendiente con PluriOne. Contactanos para revisar '
+             'las opciones de pago y resolver dudas sobre tu cuenta.')
+    assert 120 <= len(texto) <= 130
+    opcion = groq_adaptacion.return_value.choices[0]
+    opcion.finish_reason, opcion.message.content = motivo, texto
+    res = enviar(client, headers, contacto, 'SMS')
+    assert res.status_code == 201
+    assert res.json()['mensaje'] == texto
+    configurado[0].return_value.messages.create.assert_called_once_with(
+        to=contacto.telefono, from_='+12025550101', body=texto)
+
+
+@pytest.mark.parametrize('longitud', range(140, 162))
+def test_limite_sms_respeta_palabras_en_la_frontera(longitud):
+    prefijo = 'saldo ' * 23
+    palabra = 'p' * (longitud - len(prefijo))
+    texto = prefijo + palabra
+    resultado = preparar_sms(texto)
+    assert len(resultado) <= 150
+    assert resultado == (texto if longitud <= 150 else prefijo.rstrip())

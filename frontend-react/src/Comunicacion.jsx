@@ -50,7 +50,7 @@ export default function Comunicacion({ resultado, alRegistrar, permitirEdicion =
         {['Email', 'SMS', 'WhatsApp', 'Llamada'].map(c => <option key={c}>{c}</option>)}
       </select>
       </label>
-      <button onClick={registrar} disabled={cargando || !proveedores || (permitirEdicion && !mensaje.trim())}>{cargando ? 'Enviando...' : 'Enviar comunicación'}</button>
+      <button type="button" onClick={registrar} disabled={cargando || !proveedores || (permitirEdicion && !mensaje.trim())}>{cargando ? 'Enviando...' : 'Enviar comunicación'}</button>
     </div>
     <p role="status">{estado}</p>
   </div>;

@@ -79,6 +79,8 @@ def test_groq_sin_configurar(client, db, headers):
 
 
 def test_groq_mock(client, db, headers, monkeypatch):
+    monkeypatch.setenv('GROQ_MODEL', 'openai/gpt-oss-20b')
+    monkeypatch.setenv('GROQ_SMS_MODEL', 'qwen/qwen3.8-27b')
     c = crear_cliente(db)
     agregar_deuda(db, c)
     create = AsyncMock(return_value=SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='Mensaje PluriOne'), finish_reason='stop')]))
@@ -87,6 +89,8 @@ def test_groq_mock(client, db, headers, monkeypatch):
     assert data['mensaje_empatico'] == 'Mensaje PluriOne'
     assert data['modo_generacion'] == 'groq'
     create.assert_awaited_once()
+    assert create.call_args.kwargs['model'] == 'openai/gpt-oss-20b'
+    assert 'reasoning_effort' not in create.call_args.kwargs
 
 
 @pytest.mark.parametrize('canal', ['Email', 'SMS', 'WhatsApp', 'Llamada'])

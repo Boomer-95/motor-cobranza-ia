@@ -45,7 +45,8 @@ def headers(entra_token):
 def sin_servicios_externos(monkeypatch):
     import socket
     for nombre in ('COMMUNICATIONS_REAL_ENABLED', 'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_PHONE_NUMBER',
-                   'TWILIO_WHATSAPP_NUMBER', 'SENDGRID_API_KEY', 'SENDGRID_FROM_EMAIL', 'SENDGRID_FROM_NAME'):
+                   'TWILIO_WHATSAPP_NUMBER', 'SENDGRID_API_KEY', 'SENDGRID_FROM_EMAIL', 'SENDGRID_FROM_NAME',
+                   'GROQ_SMS_MODEL'):
         monkeypatch.delenv(nombre, raising=False)
     def bloquear(*args, **kwargs):
         raise AssertionError('Red externa prohibida durante pytest')
