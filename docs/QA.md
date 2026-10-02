@@ -1,5 +1,21 @@
 # QA
 
+## Alias mexicano de destino WhatsApp
+
+`twilio_service.normalizar_destino_whatsapp()` transforma exclusivamente números mexicanos +52 con diez dígitos nacionales al alias +521 observado en el Sandbox. No duplica el 1 de destinos ya +521, conserva otros países y exige sintaxis E.164. Se aplica solo al destino WhatsApp antes de añadir `whatsapp:`; no modifica el remitente ni `Cliente.telefono`. SMS usa exactamente el número original y no invoca esta función. WhatsApp conserva el mensaje largo original; no se modifica Groq, Email, Voice ni la base existente.
+
+Se añaden 14 casos con mocks: transformación mexicana, alias existente, EE.UU., otro país, idempotencia, formato inválido y seis casos integrados por canal/destino. Se comprueba el argumento enviado al SDK mockeado, el cuerpo original de WhatsApp, SMS sin transformación y el teléfono persistido tras recargar el cliente desde SQLite de pruebas.
+
+Validación: 283 pruebas Python y 2 pruebas de componente aprobadas (285 total); compileall app y git diff --check correctos. Una advertencia heredada Starlette/AnyIO. Sin llamadas reales a proveedores ni envíos, commit o push. Frontend sin modificaciones ni reconstrucción.
+
+Para reconstruir y recrear exclusivamente backend desde la raíz:
+
+```bash
+docker compose up -d --build --force-recreate --no-deps backend
+```
+
+Tras reconstruir, el cambio queda preparado para una única prueba real de WhatsApp con el destinatario incorporado al Sandbox. No se ejecutó esa prueba durante esta actualización; el estado final de entrega deberá comprobarse en Twilio.
+
 Ejecutar desde la raíz con el entorno virtual activado:
 
 ```bash

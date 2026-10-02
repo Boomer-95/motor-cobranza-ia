@@ -49,6 +49,58 @@ def enviar(client, headers, contacto, canal):
                        json={'cliente_id': contacto.id, 'canal': canal, 'mensaje': 'Mensaje de prueba'})
 
 
+@pytest.mark.parametrize('numero,esperado', [
+    ('+525500000000', '+5215500000000'),
+    ('+5215500000000', '+5215500000000'),
+    ('+12025550103', '+12025550103'),
+    ('+34600000000', '+34600000000'),
+])
+def test_normalizar_destino_whatsapp(numero, esperado):
+    assert twilio_service.normalizar_destino_whatsapp(numero) == esperado
+    assert twilio_service.normalizar_destino_whatsapp(esperado) == esperado
+
+
+@pytest.mark.parametrize('numero', [None, '525500000000', '+52 5500000000',
+                                  'whatsapp:+525500000000'])
+def test_normalizar_whatsapp_rechaza_formato_invalido(numero):
+    with pytest.raises(ValueError, match='E.164'):
+        twilio_service.normalizar_destino_whatsapp(numero)
+
+
+@pytest.mark.parametrize('numero,alias', [
+    ('+525500000000', '+5215500000000'),
+    ('+5215500000000', '+5215500000000'),
+    ('+12025550103', '+12025550103'),
+])
+@pytest.mark.parametrize('canal', ['SMS', 'WhatsApp'])
+def test_destino_por_canal_sin_modificar_cliente(client, db, headers, contacto,
+                                              configurado, groq_adaptacion,
+                                              monkeypatch, numero, alias, canal):
+    contacto.telefono = numero
+    db.commit()
+    original = 'Mensaje original largo sin modificar.\n' * 10
+    breve = groq_adaptacion.return_value.choices[0].message.content
+    if canal == 'SMS':
+        def prohibir_normalizacion(_):
+            raise AssertionError('SMS no debe normalizar el destino para WhatsApp')
+        monkeypatch.setattr(twilio_service, 'normalizar_destino_whatsapp', prohibir_normalizacion)
+    res = client.post('/api/comunicaciones', headers=headers, json={
+        'cliente_id': contacto.id, 'canal': canal, 'mensaje': original})
+    assert res.status_code == 201
+    destino = 'whatsapp:' + alias if canal == 'WhatsApp' else numero
+    origen = 'whatsapp:+12025550102' if canal == 'WhatsApp' else '+12025550101'
+    cuerpo = original if canal == 'WhatsApp' else breve
+    configurado[0].return_value.messages.create.assert_called_once_with(
+        to=destino, from_=origen, body=cuerpo)
+    configurado[1].assert_not_called()
+    if canal == 'WhatsApp':
+        groq_adaptacion.assert_not_awaited()
+    assert res.json()['mensaje'] == cuerpo
+    assert db.get(models.Comunicacion, res.json()['id']).mensaje == cuerpo
+    db.expire_all()
+    assert db.get(models.Cliente, contacto.id).telefono == numero
+
+
 @pytest.mark.parametrize('canal', ['Email', 'SMS', 'WhatsApp', 'Llamada'])
 @pytest.mark.parametrize('interruptor', [None, 'false', '1', 'yes'])
 def test_interruptor_fuerza_simulacion(client, headers, contacto, configurado, monkeypatch, canal, interruptor):
