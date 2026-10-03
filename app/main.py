@@ -171,7 +171,7 @@ async def analizar_riesgo_cliente(cliente_id: int, regenerar: bool = False,
             return {**resumen_cliente(cliente), **riesgo, "historial_id": None,
                     "mensaje_empatico": None, "modo_generacion": None, "reutilizada": False}
         ultimo = db.query(models.HistorialMensaje).filter_by(cliente_id=cliente.id).order_by(
-            models.HistorialMensaje.fecha_creacion.desc(), models.HistorialMensaje.id.desc()).first()
+            models.HistorialMensaje.fecha_creacion.desc().nulls_last(), models.HistorialMensaje.id.desc()).first()
         # Consultar/procesar un cliente ya atendido no solicita otra estrategia.
         if ultimo and not regenerar:
             return {**resumen_cliente(cliente), "historial_id": ultimo.id,
@@ -182,7 +182,7 @@ async def analizar_riesgo_cliente(cliente_id: int, regenerar: bool = False,
             raise HTTPException(503, "Servicio de IA no configurado.")
         riesgo = recalcular_riesgo(db, cliente)
         pagos = db.query(models.Pago).filter_by(cliente_id=cliente.id).order_by(
-            models.Pago.fecha_pago.desc(), models.Pago.id.desc()).limit(8).all()
+            models.Pago.fecha_pago.desc().nulls_last(), models.Pago.id.desc()).limit(8).all()
         contexto = {"fecha_actual": date.today(), "nombre": cliente.nombre,
                     **riesgo, "deudas_activas": [deuda_dict(d) for d in sorted(cliente.deudas, key=lambda d: d.id) if d.saldo_pendiente > 0],
                     "pagos_recientes": [pago_dict(p) for p in pagos],
@@ -237,7 +237,9 @@ def buscar_clientes(query: str = "", segmento: Literal["Alto riesgo", "Riesgo me
         else:
             consulta = consulta.filter(models.Cliente.nombre.ilike("%" + texto.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%", escape="\\"))
     if segmento:
-        consulta = consulta.filter(models.Cliente.segmento == ("No definido" if segmento == "Sin calcular" else segmento))
+        consulta = consulta.filter(
+            or_(models.Cliente.segmento == "No definido", models.Cliente.segmento.is_(None))
+            if segmento in ("No definido", "Sin calcular") else models.Cliente.segmento == segmento)
     if analizado is not None:
         condicion = or_(models.Cliente.segmento == "No definido", models.Cliente.segmento.is_(None))
         consulta = consulta.filter(~condicion if analizado else condicion)
@@ -258,7 +260,7 @@ def detalle_cliente(cliente_id: int, db: Session = Depends(get_db),
     c = db.get(models.Cliente, cliente_id)
     if not c:
         raise HTTPException(404, "Cliente no encontrado")
-    ultimo = db.query(models.HistorialMensaje).filter_by(cliente_id=c.id).order_by(models.HistorialMensaje.fecha_creacion.desc(), models.HistorialMensaje.id.desc()).first()
+    ultimo = db.query(models.HistorialMensaje).filter_by(cliente_id=c.id).order_by(models.HistorialMensaje.fecha_creacion.desc().nulls_last(), models.HistorialMensaje.id.desc()).first()
     return {**resumen_cliente(c), "email": c.email, "telefono": c.telefono,
             "tiene_estrategia": ultimo is not None,
             "fecha_ultima_estrategia": ultimo.fecha_creacion if ultimo else None,
@@ -337,7 +339,7 @@ def ver_historial_cliente(
 ):
     historial = db.query(models.HistorialMensaje).filter(
         models.HistorialMensaje.cliente_id == cliente_id
-    ).order_by(models.HistorialMensaje.fecha_creacion.desc(), models.HistorialMensaje.id.desc()).all()
+    ).order_by(models.HistorialMensaje.fecha_creacion.desc().nulls_last(), models.HistorialMensaje.id.desc()).all()
 
     if not historial:
         raise HTTPException(status_code=404, detail="No hay historial de mensajes para este cliente")
@@ -400,6 +402,10 @@ async def registrar_comunicacion(
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
 
     mensaje_envio = datos.mensaje
+
+    # La protección de cobranza también se aplica a llamadas directas a la API.
+    if resumen_cliente(cliente)["sin_deuda_activa"]:
+        raise HTTPException(409, "El cliente no tiene deuda activa; no se requiere comunicación de cobranza.")
 
     # Solo SMS y Llamada requieren una versión corta.
     # Email y WhatsApp conservan exactamente el mensaje original.

@@ -22,7 +22,7 @@ def url_callback_twilio():
 
 
 def telefono_valido(numero):
-    return bool(re.fullmatch(r'\+[1-9]\d{7,14}', numero or ''))
+    return bool(re.fullmatch(r'\+[1-9][0-9]{7,14}', numero or ''))
 
 
 def email_valido(email):

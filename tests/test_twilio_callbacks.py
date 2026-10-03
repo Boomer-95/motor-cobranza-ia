@@ -53,7 +53,7 @@ def callback(client, estado='delivered', sid=SID, extras=None, query='', signatu
 
 
 @pytest.mark.parametrize('estado,esperado', [
-    ('queued', 'En cola'), ('sending', 'Enviando'), ('sent', 'Enviado'),
+    ('accepted', 'Aceptado'), ('queued', 'En cola'), ('sending', 'Enviando'), ('sent', 'Enviado'),
     ('delivered', 'Entregado'), ('read', 'Leído'), ('failed', 'Fallido'),
     ('undelivered', 'No entregado'),
 ])
@@ -236,3 +236,13 @@ def test_envio_mock_incluye_callback_y_preserva_estado_temprano(client, db, regi
     assert constructor.return_value.messages.create.call_args.kwargs['status_callback'] == (
         URL + f'?comunicacion_id={fila.id}')
     assert db.query(models.Comunicacion).count() == 2
+
+
+def test_accepted_no_retrocede_desde_sent(client, db, registro, configuracion_callback):
+    assert callback(client, 'accepted').status_code == 204
+    db.refresh(registro)
+    assert registro.provider_status == 'accepted'
+    for estado in ('queued', 'sending', 'sent', 'accepted'):
+        assert callback(client, estado).status_code == 204
+    db.refresh(registro)
+    assert registro.provider_status == 'sent'

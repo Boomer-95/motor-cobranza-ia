@@ -1,4 +1,5 @@
 const estadosTwilio = {
+  accepted: 'Aceptado por proveedor; entrega no confirmada',
   queued: 'En cola', sending: 'Enviando', sent: 'Enviado; entrega no confirmada',
   delivered: 'Entregado', read: 'Leído', failed: 'Fallido', undelivered: 'No entregado',
 };

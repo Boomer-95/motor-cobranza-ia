@@ -3,7 +3,7 @@ import { apiFetch } from './api';
 import Comunicacion from './Comunicacion';
 import { estadoComunicacion } from './estadoComunicacion';
 
-import { fechaVisible, diasVisible } from './fechas';
+import { fechaVisible, fechaHoraVisible, diasVisible } from './fechas';
 const dinero = monto => `$${monto.toLocaleString('es-MX')} MXN`;
 
 function FormularioPago({ deuda, actualizar }) {
@@ -65,7 +65,7 @@ export default function FichaCliente({ detalle, alActualizar, alRefrescar }) {
     <div className="estrategia-cliente">{detalle.sin_deuda_activa ? <p>El cliente no tiene obligaciones pendientes. No se requiere estrategia de cobranza.</p> : <>
       {detalle.ultima_estrategia ? <>
         <h4>{detalle.ultima_estrategia.origen_verificado ? 'Última estrategia generada con Groq' : 'Última estrategia guardada · origen histórico no verificado'}</h4>
-        <p className="texto-secundario">{new Date(detalle.ultima_estrategia.fecha).toLocaleString('es-MX')}. Puede corresponder a un saldo anterior.</p>
+        <p className="texto-secundario">{fechaHoraVisible(detalle.ultima_estrategia.fecha)}. Puede corresponder a un saldo anterior.</p>
         <p className="texto-mensaje mensaje-estrategia">{detalle.ultima_estrategia.mensaje}</p>
         <button className="btn-secundario" onClick={() => procesar(true)} disabled={procesando}>{procesando ? 'Procesando...' : 'Regenerar estrategia con IA'}</button>
       </> : <>
