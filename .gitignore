@@ -15,3 +15,4 @@ npm-debug.log
 .pytest_cache/
 .env.*
 !.env.example
+referencias-stitch/

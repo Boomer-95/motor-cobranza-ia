@@ -5,3 +5,6 @@ body { min-width: 320px; line-height: 1.5; }
 button, input, select, textarea { font-family: inherit; }
 :focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
 .sidebar :focus-visible { outline-color: #c0c8cf; outline-offset: -3px; }
+
+input:focus-visible, select:focus-visible, textarea:focus-visible { border-color: var(--primary); outline-offset: 1px; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }

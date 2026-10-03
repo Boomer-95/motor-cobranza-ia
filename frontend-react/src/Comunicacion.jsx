@@ -38,8 +38,10 @@ export default function Comunicacion({ resultado, alRegistrar, permitirEdicion =
     finally { enCurso.current = false; setCargando(false); }
   }
   return <div className="comunicacion-form">
-    <h4>Registro de comunicación</h4>
-    <p>Modo: {proveedores ? (real ? 'Real' : 'Simulado') : 'Consultando…'}</p>
+    <header className="encabezado-comunicacion">
+      <h4>Registro de comunicación</h4>
+      <p>Modo: {proveedores ? (real ? 'Real' : 'Simulado') : 'Consultando…'}</p>
+    </header>
     {proveedores && !real && <p className="aviso-demo">Este canal se registrará en modo simulación.</p>}
     {permitirEdicion && <label>Mensaje de la comunicación
       <textarea disabled={cargando} value={mensaje} maxLength={10000} onChange={e => setMensaje(e.target.value)} />

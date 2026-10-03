@@ -5,6 +5,7 @@ import Login from './Login';
 import useSesion from './useSesion';
 import Historial from './Historial';
 import FichaCliente from './FichaCliente';
+import Icono from './Icono';
 import { fechaVisible, diasVisible } from './fechas';
 import { apiFetch } from './api';
 
@@ -155,14 +156,14 @@ function Dashboard({ nombreAdmin, handleLogout }) {
                 event.preventDefault();
                 navegar(id, true, true);
               }}>
-              {titulo}
+              <Icono nombre={id} />{titulo}
             </a>
           ))}
         </nav>
         <div className="sesion-admin">
           <small>Usuario autenticado</small>
-          <span>{nombreAdmin || 'Administrador'}</span>
-          <button className="btn-secundario" onClick={handleLogout}>Cerrar sesión</button>
+          <span className="usuario-sesion"><Icono nombre="usuario" />{nombreAdmin || 'Administrador'}</span>
+          <button className="btn-secundario" onClick={handleLogout}><Icono nombre="salir" />Cerrar sesión</button>
         </div>
       </aside>
 
@@ -187,9 +188,11 @@ function Dashboard({ nombreAdmin, handleLogout }) {
         <section ref={node => { seccionesRef.current.operacion = node; }} tabIndex={-1} id="operacion" aria-labelledby="titulo-operacion">
           <h2 id="titulo-operacion">Operación de Cobranza</h2>
           <div className="grid-operacion">
-            <div className="panel-grid">
-              <h3>Seleccionar cliente</h3>
-              <p className="texto-secundario">Selecciona una fila de la cartera o consulta un cliente por ID.</p>
+            <div className="panel-grid selector-cliente">
+              <header className="encabezado-selector">
+                <h3>Seleccionar cliente</h3>
+                <p className="texto-secundario">Selecciona una fila de la cartera o consulta un cliente por ID.</p>
+              </header>
               <form onSubmit={e => { e.preventDefault(); abrirFicha(clienteId); }}>
                 <label htmlFor="cliente-operacion">ID del cliente</label>
                 <div className="input-group">
@@ -204,7 +207,7 @@ function Dashboard({ nombreAdmin, handleLogout }) {
               {clienteSeleccionado ? <FichaCliente key={clienteSeleccionado.cliente_id} detalle={clienteSeleccionado}
                 alRefrescar={() => refrescarDetalle(clienteSeleccionado.cliente_id)}
                 alActualizar={async () => { await Promise.all([refrescarDetalle(clienteSeleccionado.cliente_id), cargarMetricas(), cargarCartera()]); }} />
-                : <p className="texto-secundario">Selecciona un cliente de la cartera o introduce su ID.</p>}
+                : <div className="resultado-vacio"><Icono nombre="usuario" /><p className="texto-secundario">Selecciona un cliente de la cartera o introduce su ID.</p></div>}
             </div>
           </div>
         </section>
@@ -215,7 +218,7 @@ function Dashboard({ nombreAdmin, handleLogout }) {
               <h2 id="titulo-cartera">Cartera priorizada</h2>
               <p className="texto-secundario">Ordenada por riesgo financiero (score de riesgo × monto pendiente).</p>
             </div>
-            <button className="btn-secundario" onClick={cargarCartera} disabled={cargandoCartera}>{cargandoCartera ? 'Actualizando...' : 'Actualizar'}</button>
+            <button className="btn-secundario" onClick={cargarCartera} disabled={cargandoCartera}><Icono nombre="actualizar" />{cargandoCartera ? 'Actualizando...' : 'Actualizar'}</button>
           </div>
           <form className="filtros-cartera" onSubmit={e => { e.preventDefault(); setBusqueda(new URLSearchParams(Object.entries(filtros).filter(([, v]) => v !== '')).toString()); }}>
             <label>Buscar cliente<input value={filtros.query} placeholder="Nombre, apellido, ID o folio" onChange={e => setFiltros({ ...filtros, query: e.target.value })} /></label>
@@ -234,7 +237,7 @@ function Dashboard({ nombreAdmin, handleLogout }) {
           {cartera.length > 0 && (
             <div className="tabla-wrapper" tabIndex="0" role="region" aria-label="Cartera priorizada">
               <table className="tabla-cartera">
-                <thead><tr><th scope="col">Folio</th><th scope="col">Cliente</th><th scope="col" className="numero">Monto pendiente</th><th scope="col">Vencimiento</th><th scope="col">Días</th><th scope="col">Segmento</th><th scope="col" className="numero">Prioridad</th></tr></thead>
+                <thead><tr><th scope="col">Folio</th><th scope="col">Cliente</th><th scope="col" className="numero">Monto pendiente</th><th scope="col">Vencimiento</th><th scope="col" className="numero">Días</th><th scope="col">Segmento</th><th scope="col" className="numero">Prioridad</th></tr></thead>
                 <tbody>
                   {cartera.map((c) => (
                     <tr key={c.cliente_id} className={`fila-cliente${seleccionado === c.cliente_id ? ' seleccionada' : ''}`} tabIndex={0} role="button" aria-label={`Seleccionar ${c.folio} · ${c.cliente_nombre}`}
@@ -248,7 +251,7 @@ function Dashboard({ nombreAdmin, handleLogout }) {
                       }}>
                       <td>{c.folio}</td><td>{c.cliente_nombre}</td>
                       <td className="numero">${c.monto_pendiente.toLocaleString('es-MX')}</td>
-                      <td>{fechaVisible(c.fecha_vencimiento)}</td><td>{diasVisible(c.dias_restantes)}</td>
+                      <td>{fechaVisible(c.fecha_vencimiento)}</td><td className="numero">{diasVisible(c.dias_restantes)}</td>
                       <td><BadgeSegmento segmento={c.segmento} /></td>
                       <td className="numero">{c.prioridad.toLocaleString('es-MX')}</td>
                     </tr>

@@ -50,37 +50,37 @@ export default function FichaCliente({ detalle, alActualizar, alRefrescar }) {
     finally { setProcesando(false); }
   }
   return <section className="ficha-cliente" aria-label={`Ficha ${detalle.folio}`}>
-    <h3>{detalle.folio} · {detalle.cliente_nombre}</h3>
+    <header className="ficha-encabezado"><span className="folio-cliente">{detalle.folio}</span><h3>{detalle.cliente_nombre}</h3></header>
     <dl className="datos-cliente">
-      <div><dt>Saldo pendiente</dt><dd>{dinero(detalle.monto_pendiente)}</dd></div>
+      <div className="saldo-destacado"><dt>Saldo pendiente</dt><dd>{dinero(detalle.monto_pendiente)}</dd></div>
       <div><dt>Monto original</dt><dd>{dinero(detalle.monto_original_total)}</dd></div>
       <div><dt>Vencimiento relevante</dt><dd>{fechaVisible(detalle.fecha_vencimiento)}</dd></div>
       <div><dt>Estado de deuda</dt><dd>{detalle.estado_deuda}</dd></div>
       {!detalle.sin_deuda_activa && <div><dt>Días</dt><dd>{diasVisible(detalle.dias_restantes)}</dd></div>}
       <div><dt>Probabilidad de pago a tiempo</dt><dd>{detalle.sin_deuda_activa ? 'No aplica — sin deuda activa' : detalle.probabilidad_pago_a_tiempo == null ? 'Sin calcular' : `${Math.round(detalle.probabilidad_pago_a_tiempo * 100)}%`}</dd></div>
       <div><dt>Score de riesgo</dt><dd>{detalle.sin_deuda_activa ? 'No aplica — sin deuda activa' : !detalle.segmento || detalle.segmento === 'No definido' ? 'Sin calcular' : detalle.score_riesgo ?? 'Sin calcular'}</dd></div>
-      <div><dt>Segmento</dt><dd>{detalle.sin_deuda_activa ? 'Sin deuda' : !detalle.segmento || detalle.segmento === 'No definido' ? 'Sin calcular' : detalle.segmento}</dd></div>
+      <div><dt>Segmento</dt><dd><span className={`badge-segmento ${detalle.sin_deuda_activa ? 'riesgo-indefinido' : {'Alto riesgo': 'riesgo-alto', 'Riesgo medio': 'riesgo-medio', 'Bajo riesgo': 'riesgo-bajo'}[detalle.segmento] || 'riesgo-indefinido'}`}>{detalle.sin_deuda_activa ? 'Sin deuda' : !detalle.segmento || detalle.segmento === 'No definido' ? 'Sin calcular' : detalle.segmento}</span></dd></div>
     </dl>
     {confirmacion && <p role="status">{confirmacion}</p>}
-    {detalle.sin_deuda_activa ? <p>El cliente no tiene obligaciones pendientes. No se requiere estrategia de cobranza.</p> : <>
+    <div className="estrategia-cliente">{detalle.sin_deuda_activa ? <p>El cliente no tiene obligaciones pendientes. No se requiere estrategia de cobranza.</p> : <>
       {detalle.ultima_estrategia ? <>
         <h4>{detalle.ultima_estrategia.origen_verificado ? 'Última estrategia generada con Groq' : 'Última estrategia guardada · origen histórico no verificado'}</h4>
         <p className="texto-secundario">{new Date(detalle.ultima_estrategia.fecha).toLocaleString('es-MX')}. Puede corresponder a un saldo anterior.</p>
-        <p className="texto-mensaje">{detalle.ultima_estrategia.mensaje}</p>
-        <button onClick={() => procesar(true)} disabled={procesando}>{procesando ? 'Procesando...' : 'Regenerar estrategia con IA'}</button>
+        <p className="texto-mensaje mensaje-estrategia">{detalle.ultima_estrategia.mensaje}</p>
+        <button className="btn-secundario" onClick={() => procesar(true)} disabled={procesando}>{procesando ? 'Procesando...' : 'Regenerar estrategia con IA'}</button>
       </> : <>
         <p>Estrategia IA: No generada</p>
         <button onClick={() => procesar(false)} disabled={procesando}>{procesando ? 'Procesando...' : 'Procesar cliente'}</button>
       </>}
-    </>}
+    </>}</div>
     {errorAccion && <p className="mensaje-error" role="alert">{errorAccion}</p>}
     <details className="detalle-operacion">
       <summary>Deudas y registro de pagos ({detalle.numero_deudas})</summary>
     <h4>Deudas</h4>
     <div className="tabla-wrapper"><table className="tabla-cartera">
-      <thead><tr><th>Deuda</th><th>Original</th><th>Saldo</th><th>Vencimiento</th><th>Estado</th><th>Pago</th></tr></thead>
+      <thead><tr><th>Deuda</th><th className="numero">Original</th><th className="numero">Saldo</th><th>Vencimiento</th><th>Estado</th><th>Pago</th></tr></thead>
       <tbody>{detalle.deudas.map(d => <tr key={d.id}>
-        <td>{d.id}</td><td>{dinero(d.monto_original)}</td><td>{dinero(d.saldo_pendiente)}</td>
+        <td>{d.id}</td><td className="numero">{dinero(d.monto_original)}</td><td className="numero">{dinero(d.saldo_pendiente)}</td>
         <td>{fechaVisible(d.fecha_vencimiento)}<br />{d.saldo_pendiente > 0 && diasVisible(d.dias_restantes)}</td><td>{d.estatus}</td>
         <td>{d.saldo_pendiente > 0 && <FormularioPago deuda={d} actualizar={actualizar} />}</td>
       </tr>)}</tbody>
@@ -88,19 +88,19 @@ export default function FichaCliente({ detalle, alActualizar, alRefrescar }) {
     </details>
     <details className="detalle-operacion"><summary>Historial de pagos ({detalle.pagos.length})</summary>
     {detalle.pagos.length ? <div className="tabla-wrapper"><table className="tabla-cartera">
-      <thead><tr><th>Fecha</th><th>Monto</th><th>Días de atraso</th><th>Deuda</th></tr></thead>
-      <tbody>{detalle.pagos.map(p => <tr key={p.id}><td>{fechaVisible(p.fecha_pago)}</td><td>{dinero(p.monto)}</td><td>{p.dias_atraso ?? '—'}</td><td>{p.deuda_id ?? 'Sin asociación histórica'}</td></tr>)}</tbody>
+      <thead><tr><th>Fecha</th><th className="numero">Monto</th><th className="numero">Días de atraso</th><th>Deuda</th></tr></thead>
+      <tbody>{detalle.pagos.map(p => <tr key={p.id}><td>{fechaVisible(p.fecha_pago)}</td><td className="numero">{dinero(p.monto)}</td><td className="numero">{p.dias_atraso ?? '—'}</td><td>{p.deuda_id ?? 'Sin asociación histórica'}</td></tr>)}</tbody>
     </table></div> : <p>Sin pagos registrados.</p>}
     </details>
-    <details className="detalle-operacion"><summary>Contacto y comunicaciones ({detalle.comunicaciones.length})</summary>
-    <p>Email: {detalle.email || 'No registrado'} · Teléfono: {detalle.telefono || 'No registrado'}</p>
+    <details className="detalle-operacion detalle-comunicaciones"><summary>Contacto y comunicaciones ({detalle.comunicaciones.length})</summary>
+    <p className="datos-contacto">Email: {detalle.email || 'No registrado'} · Teléfono: {detalle.telefono || 'No registrado'}</p>
     <h4>Historial de comunicaciones</h4>
-    <button type="button" onClick={() => { alRefrescar().catch(e => setErrorAccion(e.message)); }}>Actualizar estados</button>
+    <button className="btn-secundario" type="button" onClick={() => { alRefrescar().catch(e => setErrorAccion(e.message)); }}>Actualizar estados</button>
     {detalle.comunicaciones.length ? <div className="tabla-wrapper"><table className="tabla-cartera">
       <thead><tr><th>Canal</th><th>Fecha</th><th>Mensaje</th><th>Estado</th></tr></thead>
       <tbody>{detalle.comunicaciones.map(c => <tr key={c.id}>
         <td>{c.canal}</td><td>{fechaVisible(c.fecha)}</td><td className="texto-mensaje">{c.mensaje}</td>
-        <td>{estadoComunicacion(c)}</td>
+        <td><span className="badge-estado" data-estado={estadoComunicacion(c)}>{estadoComunicacion(c).slice(String(c.canal).length + 3)}</span></td>
       </tr>)}</tbody>
     </table></div> : <p>Sin comunicaciones registradas.</p>}
     <Comunicacion key={detalle.sin_deuda_activa ? 'sin-deuda' : detalle.ultima_estrategia?.id ?? 'sin-estrategia'} permitirEdicion
