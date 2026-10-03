@@ -44,8 +44,9 @@ class Comunicacion(Base):
     modo = Column(String(16), nullable=True)
     estado = Column(String(16), nullable=True)
     provider = Column(String(16), nullable=True)
-    external_id = Column(String(255), nullable=True)
+    external_id = Column(String(255), nullable=True, index=True)
     error_tecnico = Column(String(64), nullable=True)
+    provider_status = Column(String(16), nullable=True)
     
     cliente = relationship("Cliente", back_populates="comunicaciones")
 

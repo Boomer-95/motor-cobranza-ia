@@ -48,10 +48,13 @@ def test_login_eliminado(client):
 
 
 def test_todos_endpoints_protegidos(client):
-    for route in main.app.routes:
-        if route.path.startswith(('/api/', '/ia/', '/auth/')):
-            path = route.path.replace('{cliente_id}', '1').replace('{deuda_id}', '1')
-            for method in route.methods:
+    # Incluir routers anidados. Solo el callback sustituye Entra por firma Twilio.
+    for path, operaciones in main.app.openapi()['paths'].items():
+        if path == '/api/webhooks/twilio/status':
+            continue
+        if path.startswith(('/api/', '/ia/', '/auth/')):
+            path = path.replace('{cliente_id}', '1').replace('{deuda_id}', '1')
+            for method in operaciones:
                 assert client.request(method, path).status_code == 401, (method, path)
 
 

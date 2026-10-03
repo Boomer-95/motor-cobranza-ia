@@ -1,10 +1,24 @@
 import os
 import re
+from urllib.parse import urlsplit
 from email_validator import validate_email, EmailNotValidError
 
 
 def valor(nombre):
     return os.getenv(nombre, '').strip()
+
+
+def url_callback_twilio():
+    url = valor('TWILIO_STATUS_CALLBACK_URL')
+    if not url:
+        return ''
+    parsed = urlsplit(url)
+    if (parsed.scheme not in ('https', 'http') or not parsed.hostname
+            or parsed.username or parsed.password or parsed.query or parsed.fragment
+            or not parsed.path.endswith('/api/webhooks/twilio/status')
+            or (parsed.scheme == 'http' and parsed.hostname not in ('localhost', '127.0.0.1'))):
+        raise ValueError('URL de callback no válida')
+    return url
 
 
 def telefono_valido(numero):

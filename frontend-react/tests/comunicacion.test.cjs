@@ -98,3 +98,21 @@ for (const falla of [false, true]) {
     assert.equal(calls.length, 2); // Un nuevo clic después de finalizar sí se permite.
   });
 }
+
+const casosEstado = [
+  [{ canal: 'SMS', provider: 'twilio', estado: 'Enviado' }, 'SMS · Aceptado por proveedor; entrega no confirmada'],
+  [{ canal: 'SMS', provider: 'twilio', provider_status: 'delivered' }, 'SMS · Entregado'],
+  [{ canal: 'WhatsApp', provider: 'twilio', provider_status: 'read' }, 'WhatsApp · Leído'],
+  [{ canal: 'WhatsApp', provider: 'twilio', provider_status: 'failed' }, 'WhatsApp · Fallido'],
+  [{ canal: 'SMS', provider: 'twilio', provider_status: 'undelivered' }, 'SMS · No entregado'],
+  [{ canal: 'SMS', provider: 'twilio', provider_status: 'sent' }, 'SMS · Enviado; entrega no confirmada'],
+  [{ canal: 'Email', provider: 'sendgrid', estado: 'Enviado' }, 'Email · Enviado (aceptado; entrega no confirmada)'],
+  [{ canal: 'SMS', modo: 'simulado', estado: 'Simulado' }, 'SMS · Simulado'],
+  [{ canal: 'Email' }, 'Email · Histórico; entrega no verificada'],
+];
+for (const [registro, esperado] of casosEstado) {
+  test(`historial: ${esperado}`, async () => {
+    const { estadoComunicacion } = await import('../src/estadoComunicacion.js');
+    assert.equal(estadoComunicacion(registro), esperado);
+  });
+}

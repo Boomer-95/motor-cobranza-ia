@@ -28,15 +28,22 @@ def registrar(db, cliente, canal, mensaje):
             if canal == 'Email':
                 identificador = sendgrid_service.enviar_email(cliente.email, 'Comunicación PluriOne', mensaje)
             else:
-                identificador = twilio_service.enviar_mensaje(cliente.telefono, mensaje, whatsapp=canal == 'WhatsApp')
-            registro.external_id = identificador
-            registro.exitoso = True
-            registro.estado = 'Enviado'
+                identificador = twilio_service.enviar_mensaje(cliente.telefono, mensaje,
+                    whatsapp=canal == 'WhatsApp', comunicacion_id=registro.id)
         except Exception:
             # Código fijo: nunca persistir str(exc), respuesta, URL, destinatario ni credenciales.
-            registro.estado = 'Fallido'
-            registro.error_tecnico = 'ProviderRequestFailed'
+            db.refresh(registro, with_for_update=True)
+            if registro.provider_status is None:
+                registro.estado = 'Fallido'
+                registro.error_tecnico = 'ProviderRequestFailed'
             logger.warning('Error %s al enviar %s: ProviderRequestFailed', registro.provider, canal)
+        else:
+            # Errores de persistencia deben propagarse como tales, no como fallos SDK.
+            db.refresh(registro, with_for_update=True)
+            registro.external_id = identificador
+            if registro.provider_status is None:
+                registro.exitoso = True
+                registro.estado = 'Enviado'  # Aceptación, no entrega.
         db.commit()
     db.refresh(registro)
     return registro
@@ -45,4 +52,5 @@ def registrar(db, cliente, canal, mensaje):
 def respuesta(registro):
     return {campo: getattr(registro, campo) for campo in
             ('id', 'cliente_id', 'canal', 'fecha_envio', 'mensaje', 'exitoso', 'modo', 'estado', 'provider')} | {
+                'provider_status': getattr(registro, 'provider_status', None),
                 'simulada': registro.modo == 'simulado'}

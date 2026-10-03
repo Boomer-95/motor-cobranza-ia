@@ -19,6 +19,7 @@ from .services import comunicaciones
 from .services.mensajes import adaptar_sms, extraer_adaptacion, AdaptacionInvalida, SMS_INSTRUCCION
 from .services.configuracion import estado_proveedores
 from .services.diagnostico_groq import estructura_respuesta
+from .twilio_webhook import router as twilio_router
 from .database import get_db, engine, Base
 from openai import AsyncOpenAI, APIError, APITimeoutError, APIConnectionError, APIStatusError
 from sqlalchemy import func, or_
@@ -39,6 +40,7 @@ async def lifespan(app):
 
 
 app = FastAPI(title="Motor Inteligente de Cobranza PluriOne API", lifespan=lifespan)
+app.include_router(twilio_router)
 
 
 app.add_middleware(
@@ -269,7 +271,8 @@ def detalle_cliente(cliente_id: int, db: Session = Depends(get_db),
                 {"id": registro.id, "canal": registro.canal, "fecha": registro.fecha_envio,
                  "mensaje": registro.mensaje, "exitoso": registro.exitoso,
                  "simulada": registro.modo == "simulado" or (registro.modo is None and registro.exitoso is False),
-                 "modo": registro.modo, "estado": registro.estado, "provider": registro.provider}
+                 "modo": registro.modo, "estado": registro.estado, "provider": registro.provider,
+                 "provider_status": registro.provider_status}
                 for registro in sorted(c.comunicaciones,
                     key=lambda registro: (registro.fecha_envio or date.min, registro.id), reverse=True)
             ],

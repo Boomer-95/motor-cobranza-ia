@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { apiFetch } from './api';
 import Comunicacion from './Comunicacion';
+import { estadoComunicacion } from './estadoComunicacion';
 
 import { fechaVisible, diasVisible } from './fechas';
 const dinero = monto => `$${monto.toLocaleString('es-MX')} MXN`;
@@ -94,11 +95,12 @@ export default function FichaCliente({ detalle, alActualizar, alRefrescar }) {
     <details className="detalle-operacion"><summary>Contacto y comunicaciones ({detalle.comunicaciones.length})</summary>
     <p>Email: {detalle.email || 'No registrado'} · Teléfono: {detalle.telefono || 'No registrado'}</p>
     <h4>Historial de comunicaciones</h4>
+    <button type="button" onClick={() => { alRefrescar().catch(e => setErrorAccion(e.message)); }}>Actualizar estados</button>
     {detalle.comunicaciones.length ? <div className="tabla-wrapper"><table className="tabla-cartera">
       <thead><tr><th>Canal</th><th>Fecha</th><th>Mensaje</th><th>Estado</th></tr></thead>
       <tbody>{detalle.comunicaciones.map(c => <tr key={c.id}>
         <td>{c.canal}</td><td>{fechaVisible(c.fecha)}</td><td className="texto-mensaje">{c.mensaje}</td>
-        <td>{c.estado ? `${c.modo} · ${c.estado === 'Enviado' ? 'Enviado / aceptado; entrega no confirmada' : c.estado}${c.provider ? ` · ${c.provider}` : ''}` : c.simulada ? 'Simulada · sin envío externo' : 'Registro histórico · entrega no verificada'}</td>
+        <td>{estadoComunicacion(c)}</td>
       </tr>)}</tbody>
     </table></div> : <p>Sin comunicaciones registradas.</p>}
     <Comunicacion key={detalle.sin_deuda_activa ? 'sin-deuda' : detalle.ultima_estrategia?.id ?? 'sin-estrategia'} permitirEdicion

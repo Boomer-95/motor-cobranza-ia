@@ -31,7 +31,7 @@ export default function Comunicacion({ resultado, alRegistrar, permitirEdicion =
       const data = await res.json();
       setEstado(data.estado === 'Fallido' ? 'El proveedor no confirmó el envío. Revisa el registro antes de reintentar.'
         : data.modo === 'simulado' ? 'Comunicación registrada en modo simulación'
-          : data.provider === 'sendgrid' ? 'Correo enviado correctamente mediante SendGrid.'
+          : data.provider === 'sendgrid' ? 'Correo aceptado por SendGrid; entrega aún no confirmada.'
             : 'Comunicación aceptada por Twilio; entrega aún no confirmada.');
       alRegistrar?.();
     } catch { setEstado('No se pudo confirmar la comunicación. Revisa el historial antes de reintentar.'); }

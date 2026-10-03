@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 from unittest.mock import Mock, AsyncMock
+from twilio.base.exceptions import TwilioRestException
 import pytest
 from sqlalchemy import create_engine, text
 from app import main, models
@@ -161,8 +162,56 @@ def test_error_seguro(client, db, headers, contacto, configurado, canal, caplog)
     assert data['estado'] == 'Fallido' and data['modo'] == 'real' and data['exitoso'] is False
     registro = db.get(models.Comunicacion, data['id'])
     assert registro.error_tecnico == 'ProviderRequestFailed'
+    assert registro.external_id is None and registro.provider_status is None
     assert 'SECRETO-SENTINELA' not in str(data) + caplog.text + registro.error_tecnico
+    assert not any(r.exc_info or r.stack_info for r in caplog.records)
     mock.assert_called_once()
+
+
+@pytest.mark.parametrize('canal', ['SMS', 'WhatsApp'])
+@pytest.mark.parametrize('status,code', [(400, 21604), (401, 20003), (429, 20429),
+                                       (500, None), ('HTTP-SECRETO', 'CODIGO-SECRETO')])
+def test_twilio_rest_exception_metadatos_seguros(client, db, headers, contacto,
+        configurado, monkeypatch, caplog, canal, status, code):
+    callback = 'https://callback-secreto.example.invalid/api/webhooks/twilio/status'
+    monkeypatch.setenv('TWILIO_STATUS_CALLBACK_URL', callback)
+    sensibles = [contacto.telefono, '+12025550101', '+12025550102',
+                 'sid-ficticio-prueba', 'token-ficticio-prueba', 'Mensaje de prueba',
+                 callback, 'Authorization: HEADER-SECRETO', 'HTTP-SECRETO', 'CODIGO-SECRETO']
+    uri = 'https://api.twilio.com/Accounts/sid-ficticio-prueba/Messages.json'
+    create = configurado[0].return_value.messages.create
+    create.side_effect = TwilioRestException(status, uri, msg=' '.join(sensibles),
+                                            code=code, method='POST')
+    res = enviar(client, headers, contacto, canal)
+    assert res.status_code == 201
+    registro = db.get(models.Comunicacion, res.json()['id'])
+    assert registro.estado == 'Fallido' and registro.exitoso is False
+    assert registro.error_tecnico == 'ProviderRequestFailed'
+    assert registro.external_id is None and registro.provider_status is None
+    logs = [r for r in caplog.records if r.name == twilio_service.__name__]
+    assert len(logs) == 1
+    assert logs[0].getMessage() == (
+        f'TwilioRequestFailed channel={canal} '
+        f'http_status={status if type(status) is int else None} '
+        f'code={code if type(code) is int else None}')
+    assert not any(r.exc_info or r.stack_info for r in caplog.records)
+    assert all(secreto not in caplog.text for secreto in sensibles + [uri])
+    assert 'http_status' not in res.text and 'code' not in res.json()
+    create.assert_called_once()
+    assert create.call_args.kwargs['status_callback'] == (
+        callback + f'?comunicacion_id={registro.id}')
+
+
+def test_twilio_rest_exception_servicio_no_expone_contexto(configurado, caplog):
+    create = configurado[0].return_value.messages.create
+    create.side_effect = TwilioRestException(400, 'https://url-secreta.invalid',
+                                            msg='SECRETO-SENTINELA', code=21604)
+    with pytest.raises(RuntimeError, match='^ProviderRequestFailed$') as error:
+        twilio_service.enviar_mensaje('+12025550103', 'Mensaje de prueba')
+    assert error.value.__suppress_context__
+    assert error.value.__cause__ is None
+    assert 'SECRETO-SENTINELA' not in caplog.text
+    create.assert_called_once()
 
 
 @pytest.mark.parametrize('canal,campo,valor', [('Email', 'email', None), ('Email', 'email', 'invalido'),
@@ -208,6 +257,7 @@ def test_migracion_conserva_historico():
         assert fila['mensaje'] == 'Histórico' and fila['exitoso'] == 1
         assert fila['modo'] is None and fila['estado'] is None
         assert fila['external_id'] is None
+        assert fila['provider_status'] is None
     engine.dispose()
 
 

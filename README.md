@@ -248,7 +248,35 @@ Sin configuración frontend se muestra un aviso breve y no se permite login. El 
 
 Email y WhatsApp conservan íntegro el mensaje recibido. SMS y Llamada necesitan Groq incluso en simulación: un fallo devuelve 502 (503 si no está configurado) antes de registrar o enviar. La adaptación no modifica `HistorialMensaje`. SMS pide una sola línea de 120–130 caracteres sin explicaciones ni formato, normaliza espacios, translitera acentos, elimina emojis y usa un subconjunto GSM-7 básico de un septeto por carácter. Si excede 150, conserva el prefijo de palabras completas que cabe, sin partir números ni URLs. Acepta contenido textual utilizable tanto con `finish_reason=stop` como con `length`; limpia adornos de formato y descarta razonamiento etiquetado. Si no queda texto utilizable, cancela el envío. El historial de comunicaciones guarda exactamente el texto enviado. Llamada genera texto breve y natural sin el límite SMS; Voice sigue deshabilitado.
 
-Estados: `Pendiente` es la intención persistida antes del proveedor; `Enviado` significa aceptado, no entregado; `Fallido` significa rechazo o falta de confirmación (un timeout puede ocultar aceptación). `Entregado` se reserva para evidencia definitiva del proveedor y esta versión no lo asigna. El frontend explica la aceptación sin afirmar entrega. Para sincronizar estados posteriores se propone un status callback público HTTPS con validación de firma Twilio y actualización por `external_id`, sin reenviar mensajes. Esa infraestructura aún no está implementada. Mientras tanto, comprobar entrega/fallo en Twilio Console. Referencia: [estados y callbacks oficiales de Twilio](https://www.twilio.com/docs/messaging/guides/outbound-message-status-in-status-callbacks).
+Estados: `Pendiente` es la intención persistida antes del proveedor; `Enviado` inicialmente significa aceptado, no entregado; `Fallido` significa rechazo o falta de confirmación (un timeout puede ocultar aceptación). Twilio puede confirmar después `Entregado`/`Leído` mediante webhook. `provider_status` conserva su estado exacto, mientras `estado` contiene la etiqueta de la aplicación. Email sigue mostrando aceptación de SendGrid sin afirmar entrega. Referencia: [estados y callbacks oficiales de Twilio](https://www.twilio.com/docs/messaging/guides/track-outbound-message-status).
+
+### Status Callback de Twilio
+
+Configura `TWILIO_STATUS_CALLBACK_URL` con la URL pública exacta del endpoint, por ejemplo `https://tu-dominio.example/backend/api/webhooks/twilio/status` si usas el proxy Nginx del frontend. También se admite acceso directo a `/api/webhooks/twilio/status`. HTTPS es obligatorio salvo `http://localhost` o `http://127.0.0.1` para desarrollo. La variable no debe incluir query, fragmentos ni credenciales. Compose la transmite al backend. Si se deja vacía, los envíos conservan el funcionamiento anterior sin anunciar callbacks; el endpoint devuelve 503 hasta disponer también del token Twilio.
+
+Al crear SMS/WhatsApp se añade `status_callback` al SDK, con `?comunicacion_id=<id>` para correlacionar callbacks tempranos. El endpoint POST no usa JWT/Entra: valida `X-Twilio-Signature` mediante `twilio.request_validator.RequestValidator`, usando el Auth Token, la URL pública configurada con la query original y **todos** los campos del formulario. No reconstruye la URL desde cabeceras Host/Forwarded de la petición. El AccountSid debe coincidir con el configurado si está definido. Firma inválida: 403; SID ausente/inválido: 400; formulario no admitido: 415. [Validación oficial de Twilio](https://www.twilio.com/docs/usage/webhooks/webhooks-security).
+
+Un callback válido localiza por `external_id`/SID y actualiza exclusivamente una comunicación real Twilio SMS/WhatsApp. No crea comunicaciones ni envía mensajes. Repeticiones son inocuas; eventos atrasados no rebajan progreso ni revierten estados finales. `read` solo se admite en WhatsApp. SID desconocido/ambiguo y estados futuros no soportados reciben 204 sin cambios. La correlación por ID solo permite adjuntar un SID a una intención existente todavía Pendiente, sin SID, real y del canal correspondiente; la query está cubierta por la firma. El registro del envío vuelve a bloquear/leer la fila antes de finalizar para no sobrescribir un callback temprano.
+
+Se conservan solo estado y código numérico seguro de error (`TwilioError:<codigo>`); no se guarda ErrorMessage, cuerpo del callback, números ni contenido recibido. `exitoso` conserva la semántica histórica de aceptación para estados intermedios y pasa a false en failed/undelivered: para entrega/lectura usar provider_status. La ficha distingue En cola, Enviando, Enviado sin entrega confirmada, Entregado, Leído, Fallido y No entregado. El botón **Actualizar estados** consulta de nuevo el detalle; no hay polling/WebSocket del navegador.
+
+La migración añade `comunicaciones.provider_status` anulable y un índice no único en external_id; deja registros históricos intactos. Antes de iniciar esta versión sobre una base existente, ejecutar la migración con la imagen nueva, siguiendo el respaldo habitual:
+
+```bash
+docker compose build backend frontend
+docker compose run --rm --no-deps backend python -m app.migrate
+docker compose up -d --force-recreate --no-deps backend frontend
+```
+
+Prueba local completamente aislada, sin cuentas, claves ni comunicaciones reales:
+
+```bash
+venv/bin/pytest tests/test_twilio_callbacks.py -q
+```
+
+La suite crea registros ficticios en SQLite en memoria, calcula firmas con un token ficticio usando la librería oficial y llama al endpoint mediante TestClient; las conexiones externas están bloqueadas. Incluye callbacks delivered/read/failed, repeticiones, SID desconocido/ausente, firmas inválidas, preservación de datos y callbacks tempranos.
+
+Para recibir callbacks reales después hará falta una URL HTTPS accesible desde Internet (dominio/proxy o túnel de desarrollo), enrutar solo este endpoint hasta el backend, configurar TWILIO_STATUS_CALLBACK_URL con esa URL exacta y recrear backend. El proxy no debe modificar body ni X-Twilio-Signature y la ruta no debe requerir Entra. Los nuevos envíos incluirán el callback; esta actualización no registra retrospectivamente callbacks para mensajes históricos. No se configura ni se contacta Twilio al arrancar la aplicación.
 
 Para reconstruir, desde la raíz del repositorio:
 

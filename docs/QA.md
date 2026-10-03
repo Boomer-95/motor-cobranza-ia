@@ -1,5 +1,11 @@
 # QA
 
+## Status Callback Twilio
+
+319 pruebas Python y 11 de frontend aprobadas (330 total). La suite del callback usa RequestValidator real con token/SID ficticios, TestClient, SDK Twilio mockeado y SQLite en memoria con conexiones externas bloqueadas. Incluye delivered/read/failed/undelivered y estados intermedios, firma válida/inválida/ausente, campos nuevos en la firma, URL pública detrás de proxy, ausencia de JWT, SID desconocido/ausente/ambiguo, formato incorrecto, AccountSid ajeno, repeticiones, conservación de mensaje/cliente/canal, aislamiento de simulados/Email/Voice, eventos atrasados, códigos de error seguros, límite de body y callback temprano que no se sobrescribe al registrar el envío. La migración se ejecuta dos veces sobre datos heredados de prueba y conserva filas, con provider_status inicialmente NULL.
+
+Frontend distingue aceptación, entrega, lectura, fallos e históricos; SendGrid no afirma entrega. Se agregan pruebas de etiquetas y se conservan tests de un POST por clic/solicitud pendiente. npm test, lint y build correctos; compileall app y git diff --check correctos. Una advertencia heredada Starlette/AnyIO. No se ejecutó la migración sobre PostgreSQL existente ni se hicieron llamadas reales, envíos, commit o push. El bloqueo de filas usa PostgreSQL SELECT FOR UPDATE; SQLite no valida su concurrencia real. Prueba local aislada y configuración pública en README, sección Status Callback de Twilio.
+
 ## Alias mexicano de destino WhatsApp
 
 `twilio_service.normalizar_destino_whatsapp()` transforma exclusivamente números mexicanos +52 con diez dígitos nacionales al alias +521 observado en el Sandbox. No duplica el 1 de destinos ya +521, conserva otros países y exige sintaxis E.164. Se aplica solo al destino WhatsApp antes de añadir `whatsapp:`; no modifica el remitente ni `Cliente.telefono`. SMS usa exactamente el número original y no invoca esta función. WhatsApp conserva el mensaje largo original; no se modifica Groq, Email, Voice ni la base existente.
