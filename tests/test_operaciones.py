@@ -327,3 +327,56 @@ def test_liquidar_ultima_deuda_sin_modelo(client, db, headers, cartera, monkeypa
     assert [r['cliente_id'] for r in client.get('/api/cartera-priorizada', headers=headers).json()] == [cartera[0].id]
     assert client.get(f'/api/clientes/{c.id}', headers=headers).json()['sin_deuda_activa'] is True
     create.assert_not_awaited()
+
+
+@pytest.mark.parametrize('segmento', ['No definido', 'Sin calcular'])
+def test_filtro_sin_calcular_incluye_segmento_nulo(client, db, headers, cartera, segmento):
+    c, otro = cartera
+    db.query(models.Cliente).filter_by(id=otro.id).update({'segmento': None})
+    db.commit()
+    resultado = client.get('/api/clientes', params={'segmento': segmento}, headers=headers)
+    assert resultado.status_code == 200
+    assert {fila['cliente_id'] for fila in resultado.json()} == {c.id, otro.id}
+    assert client.get('/api/metricas', headers=headers).json()['clientes_sin_evaluar'] == 2
+
+
+def test_historial_fecha_nula_no_desplaza_estrategia_fechada(client, db, headers, cartera, monkeypatch):
+    from datetime import datetime
+    c = cartera[0]
+    fechado = models.HistorialMensaje(cliente_id=c.id, monto_al_momento=2000,
+        mensaje_generado='Estrategia fechada', fecha_creacion=datetime(2026, 10, 2, 12))
+    sin_fecha = models.HistorialMensaje(cliente_id=c.id, monto_al_momento=2000,
+        mensaje_generado='Histórico sin fecha')
+    db.add_all([fechado, sin_fecha])
+    db.flush()
+    db.query(models.HistorialMensaje).filter_by(id=sin_fecha.id).update({'fecha_creacion': None})
+    db.commit()
+    create = groq(monkeypatch)
+    historial = client.get(f'/ia/historial/{c.id}', headers=headers).json()
+    assert [fila['id'] for fila in historial] == [fechado.id, sin_fecha.id]
+    assert historial[1]['fecha_creacion'] is None
+    detalle = client.get(f'/api/clientes/{c.id}', headers=headers).json()
+    assert detalle['ultima_estrategia']['mensaje'] == 'Estrategia fechada'
+    estrategia = client.post(f'/ia/analizar-riesgo/{c.id}', headers=headers).json()
+    assert estrategia['historial_id'] == fechado.id
+    create.assert_not_awaited()
+
+
+@pytest.mark.parametrize('canal', ['Email', 'SMS', 'WhatsApp', 'Llamada'])
+def test_sin_deuda_no_comunicacion_de_cobranza(client, db, headers, monkeypatch, canal):
+    from unittest.mock import Mock
+    c = models.Cliente(nombre='Liquidado')
+    db.add(c)
+    db.flush()
+    db.add(models.Deuda(cliente_id=c.id, monto_total=100, saldo_pendiente=0,
+        fecha_vencimiento=date.today(), estatus='Pagada'))
+    db.commit()
+    create = groq(monkeypatch)
+    registrar = Mock(side_effect=AssertionError('No contactar cliente liquidado'))
+    monkeypatch.setattr(main.comunicaciones, 'registrar', registrar)
+    resultado = client.post('/api/comunicaciones', headers=headers,
+        json={'cliente_id': c.id, 'canal': canal, 'mensaje': 'Mensaje de cobranza'})
+    assert resultado.status_code == 409
+    create.assert_not_awaited()
+    registrar.assert_not_called()
+    assert db.query(models.Comunicacion).count() == 0

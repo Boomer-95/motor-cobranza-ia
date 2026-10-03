@@ -127,12 +127,12 @@ function Dashboard({ nombreAdmin, handleLogout }) {
       if (response.ok) {
         const data = await response.json();
         if (solicitud === solicitudCartera.current) setCartera(data);
-      } else if (response.status !== 401) {
+      } else if (response.status !== 401 && solicitud === solicitudCartera.current) {
         setErrorCartera('No se pudo cargar la cartera priorizada.');
       }
     } catch (error) {
       console.error('Error al cargar cartera priorizada', error);
-      setErrorCartera('Error de conexión al cargar la cartera.');
+      if (solicitud === solicitudCartera.current) setErrorCartera('Error de conexión al cargar la cartera.');
     } finally {
       if (solicitud === solicitudCartera.current) setCargandoCartera(false);
     }

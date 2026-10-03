@@ -100,6 +100,7 @@ for (const falla of [false, true]) {
 }
 
 const casosEstado = [
+  [{ canal: 'SMS', provider: 'twilio', provider_status: 'accepted', estado: 'Aceptado' }, 'SMS · Aceptado por proveedor; entrega no confirmada'],
   [{ canal: 'SMS', provider: 'twilio', estado: 'Enviado' }, 'SMS · Aceptado por proveedor; entrega no confirmada'],
   [{ canal: 'SMS', provider: 'twilio', provider_status: 'delivered' }, 'SMS · Entregado'],
   [{ canal: 'WhatsApp', provider: 'twilio', provider_status: 'read' }, 'WhatsApp · Leído'],

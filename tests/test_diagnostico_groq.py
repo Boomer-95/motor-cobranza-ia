@@ -27,6 +27,8 @@ def test_sdk_real_con_transporte_mock_y_diagnostico(client, db, headers, monkeyp
     # JSON sintético pasa por la deserialización del SDK instalado; no usa red.
     cliente = models.Cliente(nombre='Fixture')
     db.add(cliente)
+    db.flush()
+    db.add(models.Deuda(cliente_id=cliente.id, monto_total=100, saldo_pendiente=100))
     db.commit()
     modelo = 'qwen/qwen3.8-27b'
     monkeypatch.setenv('GROQ_MODEL', 'openai/gpt-oss-20b')
@@ -144,6 +146,8 @@ def test_modelo_sms_separado_y_reasoning_por_modelo(client, db, headers, monkeyp
     from unittest.mock import AsyncMock
     cliente = models.Cliente(nombre='Fixture')
     db.add(cliente)
+    db.flush()
+    db.add(models.Deuda(cliente_id=cliente.id, monto_total=100, saldo_pendiente=100))
     db.commit()
     monkeypatch.setenv('GROQ_MODEL', 'openai/gpt-oss-20b')
     monkeypatch.setenv('GROQ_SMS_MODEL', modelo)

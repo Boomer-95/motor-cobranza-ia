@@ -41,6 +41,8 @@ def configurado(monkeypatch):
 def contacto(db):
     c = models.Cliente(nombre='Prueba', email='cliente@example.com', telefono='+12025550103')
     db.add(c)
+    db.flush()
+    db.add(models.Deuda(cliente_id=c.id, monto_total=100, saldo_pendiente=100))
     db.commit()
     return c
 
@@ -575,3 +577,9 @@ def test_limite_sms_respeta_palabras_en_la_frontera(longitud):
     resultado = preparar_sms(texto)
     assert len(resultado) <= 150
     assert resultado == (texto if longitud <= 150 else prefijo.rstrip())
+
+
+@pytest.mark.parametrize('numero', ['+52' + '５' * 10, '+52' + '٥' * 10])
+def test_e164_rechaza_digitos_unicode(numero):
+    from app.services.configuracion import telefono_valido
+    assert not telefono_valido(numero)

@@ -3,10 +3,10 @@ import re
 from sqlalchemy import select
 from ..models import Comunicacion
 
-ESTADOS = {'queued': 'En cola', 'sending': 'Enviando', 'sent': 'Enviado',
+ESTADOS = {'accepted': 'Aceptado', 'queued': 'En cola', 'sending': 'Enviando', 'sent': 'Enviado',
            'delivered': 'Entregado', 'read': 'Leído', 'failed': 'Fallido',
            'undelivered': 'No entregado'}
-PROGRESO = {'queued': 0, 'sending': 1, 'sent': 2, 'delivered': 3, 'read': 4}
+PROGRESO = {'accepted': -1, 'queued': 0, 'sending': 1, 'sent': 2, 'delivered': 3, 'read': 4}
 FALLOS = {'failed', 'undelivered'}
 
 

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { apiFetch } from './api';
+import { fechaHoraVisible } from './fechas';
 
 export default function Historial({ referenciaSeccion }) {
   const [id, setId] = useState('1');
@@ -30,7 +31,7 @@ export default function Historial({ referenciaSeccion }) {
         <thead><tr><th scope="col">Folio</th><th scope="col">Fecha</th><th scope="col" className="numero">Monto</th><th scope="col">Mensaje</th></tr></thead>
         <tbody>{registros.map(item => <tr key={item.id}>
           <td>CL-{String(item.cliente_id).padStart(6, '0')}</td>
-          <td className="fecha">{new Date(item.fecha_creacion).toLocaleString('es-MX')}</td>
+          <td className="fecha">{fechaHoraVisible(item.fecha_creacion)}</td>
           <td className="numero">${item.monto_al_momento.toLocaleString('es-MX')} MXN</td>
           <td className="texto-mensaje">{item.mensaje_generado}</td>
         </tr>)}</tbody>

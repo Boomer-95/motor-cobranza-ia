@@ -100,6 +100,7 @@ def test_comunicacion(client, db, headers, canal, monkeypatch):
     monkeypatch.setattr(main, 'client', SimpleNamespace(chat=SimpleNamespace(
         completions=SimpleNamespace(create=create)), close=AsyncMock()))
     c = crear_cliente(db)
+    agregar_deuda(db, c)
     res = client.post('/api/comunicaciones', headers=headers, json={'cliente_id': c.id, 'canal': canal, 'mensaje': 'Mensaje demo'})
     assert res.status_code == 201
     assert res.json()['simulada'] is True
