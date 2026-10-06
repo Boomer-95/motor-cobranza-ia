@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 CANALES = {'Email': 'sendgrid', 'SMS': 'twilio_sms', 'WhatsApp': 'twilio_whatsapp', 'Llamada': 'twilio_voice'}
 
 
-def registrar(db, cliente, canal, mensaje):
+def registrar(db, cliente, canal, mensaje, estrategia_id=None):
     real = estado_proveedores()[CANALES[canal]]
     # La demo histórica admite clientes sin contacto. Solo el envío exige destinatario.
     if real:
@@ -17,7 +17,7 @@ def registrar(db, cliente, canal, mensaje):
         if not valido:
             raise HTTPException(422, 'El cliente requiere un email válido.' if canal == 'Email'
                                 else 'El cliente requiere teléfono internacional válido (E.164).')
-    registro = Comunicacion(cliente_id=cliente.id, canal=canal, mensaje=mensaje,
+    registro = Comunicacion(cliente_id=cliente.id, canal=canal, mensaje=mensaje, estrategia_id=estrategia_id,
         fecha_envio=date.today(), exitoso=False, modo='real' if real else 'simulado',
         estado='Pendiente' if real else 'Simulado',
         provider=('sendgrid' if canal == 'Email' else 'twilio') if real else None)
@@ -52,5 +52,6 @@ def registrar(db, cliente, canal, mensaje):
 def respuesta(registro):
     return {campo: getattr(registro, campo) for campo in
             ('id', 'cliente_id', 'canal', 'fecha_envio', 'mensaje', 'exitoso', 'modo', 'estado', 'provider')} | {
+                'estrategia_id': getattr(registro, 'estrategia_id', None),
                 'provider_status': getattr(registro, 'provider_status', None),
                 'simulada': registro.modo == 'simulado'}

@@ -16,6 +16,7 @@ load_dotenv()
 
 from . import models, auth
 from .services import comunicaciones
+from .services.analitica import router as analitica_router, cartera_actual
 from .services.mensajes import adaptar_sms, extraer_adaptacion, AdaptacionInvalida, SMS_INSTRUCCION
 from .services.configuracion import estado_proveedores
 from .services.diagnostico_groq import estructura_respuesta
@@ -41,6 +42,7 @@ async def lifespan(app):
 
 app = FastAPI(title="Motor Inteligente de Cobranza PluriOne API", lifespan=lifespan)
 app.include_router(twilio_router)
+app.include_router(analitica_router)
 
 
 app.add_middleware(
@@ -353,11 +355,9 @@ def obtener_metricas_globales(
     user: dict = Depends(auth.get_entra_user),
 ):
     total_clientes = db.query(models.Cliente).count()
-    saldo_total = db.query(func.sum(models.Deuda.saldo_pendiente)).scalar() or 0.0
-    cartera_vencida = db.query(func.sum(models.Deuda.saldo_pendiente)).filter(
-        models.Deuda.saldo_pendiente > 0,
-        or_(models.Deuda.estatus == "En Mora", models.Deuda.fecha_vencimiento < date.today()),
-    ).scalar() or 0.0
+    cartera = cartera_actual(db)
+    saldo_total = cartera['saldo_pendiente']
+    cartera_vencida = cartera['cartera_vencida']
     total_estrategias = db.query(func.count(func.distinct(models.HistorialMensaje.cliente_id))).scalar()
 
     monto_original = db.query(func.sum(models.Deuda.monto_total)).scalar() or 0.0
@@ -369,7 +369,7 @@ def obtener_metricas_globales(
 
     return {
         "total_clientes": total_clientes,
-        "deudores_activos": db.query(models.Cliente).filter(models.Cliente.deudas.any(models.Deuda.saldo_pendiente > 0)).count(),
+        "deudores_activos": cartera["deudores_activos"],
         "clientes_sin_evaluar": db.query(models.Cliente).filter(or_(models.Cliente.segmento == "No definido", models.Cliente.segmento.is_(None))).count(),
         "saldo_pendiente": saldo_total,
         "cartera_vencida": cartera_vencida,
@@ -380,6 +380,7 @@ def obtener_metricas_globales(
 
 class ComunicacionNueva(BaseModel):
     cliente_id: int = Field(gt=0)
+    estrategia_id: int | None = Field(default=None, gt=0)
     canal: Literal["Email", "SMS", "WhatsApp", "Llamada"]
     mensaje: str = Field(min_length=1, max_length=10000)
 
@@ -401,6 +402,10 @@ async def registrar_comunicacion(
     if cliente is None:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
 
+    if datos.estrategia_id is not None:
+        estrategia = db.get(models.HistorialMensaje, datos.estrategia_id)
+        if estrategia is None or estrategia.cliente_id != cliente.id:
+            raise HTTPException(422, "La estrategia debe pertenecer al cliente de la comunicación.")
     mensaje_envio = datos.mensaje
 
     # La protección de cobranza también se aplica a llamadas directas a la API.
@@ -503,7 +508,8 @@ async def registrar_comunicacion(
             db,
             cliente,
             datos.canal,
-            mensaje_envio
+            mensaje_envio,
+            **({"estrategia_id": datos.estrategia_id} if datos.estrategia_id is not None else {})
         )
     )
 

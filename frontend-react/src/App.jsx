@@ -1,3 +1,4 @@
+import Analitica from './Analitica';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
 import useNavegacionSecciones, { SECCIONES } from './useNavegacionSecciones';
@@ -261,6 +262,7 @@ function Dashboard({ nombreAdmin, handleLogout }) {
             </div>
           )}
         </section>
+        <Analitica referenciaSeccion={node => { seccionesRef.current.analitica = node; }} />
         <Historial referenciaSeccion={node => { seccionesRef.current.historial = node; }} />
       </main>
     </div>

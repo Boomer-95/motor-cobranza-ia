@@ -330,3 +330,57 @@ GitHub Actions ya ejecuta tests/compilación/check de backend, tests/lint/build 
 Ver [AUDITORIA_MVP.md](docs/AUDITORIA_MVP.md) para evidencia, correcciones y pendientes. Mantener datos ficticios durante demostraciones. El MVP conserva columnas monetarias Float, entrenamiento sintético y ausencia de roles de aplicación/rate limiting/idempotencia distribuida. Restringir asignación de usuarios en Entra y servir mediante TLS antes de uso productivo.
 
 La auditoría npm detecta vulnerabilidades de Vite/esbuild de desarrollo; la actualización compatible queda pendiente. El contenedor final sirve estáticos con Nginx y no incluye el servidor Vite. No publicar el servidor de desarrollo.
+
+### Analítica IA / Impacto de Cobranza
+
+Nueva sección empresarial con cartera actual, evolución por snapshots, pagos registrados,
+estrategias y efectividad de Email/SMS/WhatsApp. **Recuperación asociada a IA** representa
+una asociación temporal de hasta 7 días tras un envío ligado a una estrategia; no demuestra
+causalidad. Excluye simulaciones y pagos del mismo día. El histórico empieza en el primer
+snapshot real y registra los días consultados, sin reconstruir el pasado.
+
+Ejecutar `python -m app.migrate` antes del backend actualizado. La migración es aditiva,
+idempotente y conserva datos históricos. Consultar [fórmulas, periodos, activación y
+limitaciones](docs/ANALITICA_IA.md).
+
+## Base de datos de demostración
+
+[db/base-de-datos.sql](db/base-de-datos.sql) contiene el esquema PostgreSQL actual y un conjunto **completamente ficticio** para la entrega académica: 15 clientes, 23 deudas, 40 pagos, 24 estrategias históricas, 24 comunicaciones simuladas y 15 snapshots de fechas distintas. Incluye constraints, claves foráneas, índices y secuencias; la tabla legacy `administradores` se conserva vacía. No contiene credenciales, datos personales reales, teléfonos, SIDs ni identificadores de proveedores. Los nombres están marcados como ficticios y todos los correos usan `example.invalid`.
+
+Importar **exclusivamente en una base PostgreSQL 16 vacía y separada**. No importar sobre la base operativa ni ejecutar los seeds generales después de restaurar:
+
+```bash
+createdb motor_cobranza_demo
+psql -X -v ON_ERROR_STOP=1 --single-transaction -d motor_cobranza_demo -f db/base-de-datos.sql
+```
+
+Ejemplo Docker aislado, sin Compose ni volúmenes de la instalación actual. `--network none` evita publicar servicios; la autenticación trust es solo para este contenedor local efímero, que no debe exponerse ni usarse en producción:
+
+```bash
+docker run -d --name plurione-demo-db --network none \
+  -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_DB=motor_cobranza_demo postgres:16-alpine
+# Esperar hasta que pg_isready indique que PostgreSQL acepta conexiones:
+docker exec plurione-demo-db pg_isready -U postgres -d motor_cobranza_demo
+docker exec -i plurione-demo-db psql -U postgres -X -v ON_ERROR_STOP=1 \
+  --single-transaction -d motor_cobranza_demo < db/base-de-datos.sql
+```
+
+Para usar la demo en el dashboard, configurar el backend de demostración por separado apuntando a la nueva base; no sobrescribir el `.env` ni recrear los servicios operativos. `DB_HOST`, cuando está definido, tiene prioridad sobre `DATABASE_URL`. **`COMMUNICATIONS_REAL_ENABLED=false` debe permanecer así durante toda la demostración.** Los accesos Microsoft se proporcionan por separado: el SQL no crea cuentas Entra ni contiene contraseñas de acceso. Las consultas locales de validación sustituyen Entra únicamente en un TestClient aislado; no prueban el login Microsoft.
+
+Los scores, estrategias y snapshots son datos inventados para ilustrar la interfaz, no resultados de una evaluación real ni llamadas a Groq. Todos los pagos tienen deuda asociada y los saldos concilian con sus importes. Las comunicaciones son exclusivamente simuladas: efectividad por canal muestra simulaciones, pero cero envíos reales, entregas y recuperación atribuida a IA, conforme a las reglas actuales. El dump usa fechas fijas con fecha base **2026-10-06**; con el paso del tiempo los vencimientos y filtros de periodo cambian. `/api/analitica/evolucion` actualiza el snapshot de hoy, únicamente en la base demo conectada.
+
+### Regenerar y verificar la entrega
+
+Los scripts nuevos no cargan `.env` ni usan la conexión operativa. Requieren las dependencias Python del proyecto, los binarios PostgreSQL 16 y ejecutarse como usuario no root. Desde la raíz:
+
+```bash
+venv/bin/python scripts/generar_base_demo.py
+# Opcional: desplazar todas las fechas para una presentación posterior:
+venv/bin/python scripts/generar_base_demo.py --fecha-base AAAA-MM-DD
+# Si PostgreSQL está instalado en otro directorio:
+venv/bin/python scripts/generar_base_demo.py --pg-bin /ruta/a/postgresql/16/bin
+```
+
+El generador inicializa un clúster nuevo en `/tmp/motor-entrega-*`, sin TCP, crea `motor_cobranza_entrega_tmp`, aplica los modelos y las migraciones locales actuales, y ejecuta `scripts/seed_entrega.py`. Este seed rechaza conexiones ajenas al socket temporal y bases que ya tengan tablas. Exporta con `pg_dump --format=plain --no-owner --no-privileges`, importa **solo el SQL** en otra base vacía (`motor_cobranza_validacion_tmp`) y verifica esquema, relaciones, índices, secuencias, conteos, conciliación de saldos y contenido sensible. Después consulta métricas, clientes, cartera y analítica con TestClient, bloqueando conexiones externas. No ejecuta seeds adicionales, envíos ni entrenamiento del modelo. Solo copia el SQL final a `db/base-de-datos.sql` si todas las comprobaciones pasan.
+
+El clúster temporal se detiene al finalizar y su ruta se informa para inspección; no borra bases ni volúmenes existentes. La regeneración reproduce el esquema y los datos para una misma fecha base; cabeceras y marcadores internos de `pg_dump` pueden variar. No ejecutar estos scripts en producción.

@@ -7,7 +7,7 @@ const { transformSync } = require('esbuild');
 
 // Ejecuta el componente real con un arnés de hooks y una API en memoria.
 // No necesita navegador, credenciales ni conexiones de red.
-function montar(apiFetch) {
+function montar(apiFetch, estrategiaId = null) {
   const slots = [];
   const effects = [];
   let cursor = 0;
@@ -43,7 +43,7 @@ function montar(apiFetch) {
   }, { filename });
   function render() {
     cursor = 0;
-    return module.exports.default({ resultado: { clienteId: 1, mensaje: 'Mensaje original' } });
+    return module.exports.default({ resultado: { clienteId: 1, estrategiaId, mensaje: 'Mensaje original' } });
   }
   render();
   effects.forEach(effect => effect());
@@ -84,7 +84,7 @@ for (const falla of [false, true]) {
     assert.equal(calls[0].url, '/api/comunicaciones');
     assert.equal(calls[0].options.method, 'POST');
     assert.deepEqual(JSON.parse(calls[0].options.body), {
-      cliente_id: 1, canal: 'SMS', mensaje: 'Mensaje original',
+      cliente_id: 1, estrategia_id: null, canal: 'SMS', mensaje: 'Mensaje original',
     });
     tree = render();
     assert.equal(buscar(tree, 'button').props.disabled, true);
@@ -117,3 +117,17 @@ for (const [registro, esperado] of casosEstado) {
     assert.equal(estadoComunicacion(registro), esperado);
   });
 }
+
+
+test('envío de una estrategia existente conserva su identificador', async () => {
+  let cuerpo;
+  const render = montar(async (url, options) => {
+    if (url === '/api/integraciones/estado') return { ok: true, json: async () => ({ sendgrid: false }) };
+    cuerpo = JSON.parse(options.body);
+    return { ok: true, json: async () => ({ modo: 'simulado' }) };
+  }, 42);
+  await new Promise(resolve => setImmediate(resolve));
+  await buscar(render(), 'button').props.onClick();
+  assert.equal(cuerpo.estrategia_id, 42);
+  assert.equal(cuerpo.cliente_id, 1);
+});

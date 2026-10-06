@@ -4,6 +4,7 @@ export const SECCIONES = [
   { id: 'resumen', titulo: 'Resumen' },
   { id: 'operacion', titulo: 'Operación de Cobranza' },
   { id: 'cartera', titulo: 'Cartera' },
+  { id: 'analitica', titulo: 'Analítica IA' },
   { id: 'historial', titulo: 'Historial' },
 ];
 

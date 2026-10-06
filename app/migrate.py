@@ -12,7 +12,8 @@ def migrar(bind=engine):
         cambios = {
             'comunicaciones': {'modo': 'VARCHAR(16)', 'estado': 'VARCHAR(16)',
                               'provider': 'VARCHAR(16)', 'external_id': 'VARCHAR(255)',
-                              'error_tecnico': 'VARCHAR(64)', 'provider_status': 'VARCHAR(16)'},
+                              'error_tecnico': 'VARCHAR(64)', 'provider_status': 'VARCHAR(16)',
+                              'estrategia_id': 'INTEGER REFERENCES historial_mensajes(id)'},
             'pagos': {'deuda_id': 'INTEGER REFERENCES deudas(id)'},
             'clientes': {'probabilidad_pago_a_tiempo': 'FLOAT'},
             'historial_mensajes': {'contexto_hash': 'VARCHAR(64)'},
@@ -22,6 +23,7 @@ def migrar(bind=engine):
             for nombre, tipo in columnas.items():
                 if nombre not in existentes:
                     conn.execute(text(f'ALTER TABLE {tabla} ADD COLUMN {nombre} {tipo}'))
+        conn.execute(text('CREATE INDEX IF NOT EXISTS ix_comunicaciones_estrategia_id ON comunicaciones (estrategia_id)'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_pagos_deuda_id ON pagos (deuda_id)'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_comunicaciones_external_id ON comunicaciones (external_id)'))
 

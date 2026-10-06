@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Date, Boolean, ForeignKey, Text, DateTime
+from sqlalchemy import Column, Integer, String, Float, Date, Boolean, ForeignKey, Text, DateTime, Numeric
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from .database import Base
@@ -37,6 +37,8 @@ class Comunicacion(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     cliente_id = Column(Integer, ForeignKey("clientes.id"))
+    estrategia_id = Column(Integer, ForeignKey("historial_mensajes.id"), nullable=True, index=True)
+    estrategia = relationship("HistorialMensaje")
     canal = Column(String)
     fecha_envio = Column(Date)
     mensaje = Column(String)
@@ -90,3 +92,16 @@ class Administrador(Base):
     hashed_password = Column(String, nullable=False)
     nombre_completo = Column(String, nullable=True)
     activo = Column(Boolean, default=True)
+
+
+class MetricaSnapshot(Base):
+    __tablename__ = "metricas_snapshots"
+
+    id = Column(Integer, primary_key=True)
+    fecha = Column(Date, nullable=False, unique=True, index=True)
+    saldo_pendiente = Column(Numeric(18, 2), nullable=False)
+    cartera_vencida = Column(Numeric(18, 2), nullable=False)
+    deudores_activos = Column(Integer, nullable=False)
+    clientes_alto_riesgo = Column(Integer, nullable=False)
+    monto_recuperado = Column(Numeric(18, 2), nullable=False)
+    clientes_con_estrategia_ia = Column(Integer, nullable=False)

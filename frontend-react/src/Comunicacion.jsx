@@ -25,7 +25,7 @@ export default function Comunicacion({ resultado, alRegistrar, permitirEdicion =
     try {
       const res = await apiFetch('/api/comunicaciones', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cliente_id: resultado.clienteId, canal, mensaje: permitirEdicion ? mensaje.trim() : resultado.mensaje }),
+        body: JSON.stringify({ cliente_id: resultado.clienteId, estrategia_id: resultado.estrategiaId ?? null, canal, mensaje: permitirEdicion ? mensaje.trim() : resultado.mensaje }),
       });
       if (!res.ok) throw new Error();
       const data = await res.json();

@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "test": "node tests/comunicacion.test.cjs && node tests/historial.test.cjs && node tests/api.test.cjs && node tests/cartera.test.cjs",
+    "test": "node tests/comunicacion.test.cjs && node tests/historial.test.cjs && node tests/api.test.cjs && node tests/cartera.test.cjs && node tests/analitica.test.cjs",
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
@@ -14,7 +14,8 @@
     "@azure/msal-browser": "^4.30.0",
     "@azure/msal-react": "^3.0.29",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "recharts": "^3.10.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.13.0",

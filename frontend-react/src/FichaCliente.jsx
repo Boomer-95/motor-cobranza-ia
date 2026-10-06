@@ -104,7 +104,7 @@ export default function FichaCliente({ detalle, alActualizar, alRefrescar }) {
       </tr>)}</tbody>
     </table></div> : <p>Sin comunicaciones registradas.</p>}
     <Comunicacion key={detalle.sin_deuda_activa ? 'sin-deuda' : detalle.ultima_estrategia?.id ?? 'sin-estrategia'} permitirEdicion
-      resultado={{ clienteId, mensaje: detalle.sin_deuda_activa ? '' : detalle.ultima_estrategia?.mensaje || '' }}
+      resultado={{ clienteId, estrategiaId: detalle.sin_deuda_activa ? null : detalle.ultima_estrategia?.id, mensaje: detalle.sin_deuda_activa ? '' : detalle.ultima_estrategia?.mensaje || '' }}
       alRegistrar={() => { alRefrescar().catch(e => setErrorAccion(e.message)); }} />
     </details>
   </section>;
